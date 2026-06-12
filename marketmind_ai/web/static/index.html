@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarketMind AI Rebuild</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Evidence-backed research console</p>
+          <h1>MarketMind AI Rebuild</h1>
+          <p class="subhead">
+            A fresh implementation of the same end-to-end stock research experience:
+            symbol validation, LangGraph multi-agent orchestration, live stage streaming, and a guarded final decision.
+          </p>
+        </div>
+        <div class="hero-panel">
+          <div class="metric">
+            <span class="metric-label">Runtime</span>
+            <span class="metric-value">LangGraph Autonomy</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Data Source</span>
+            <span class="metric-value" id="dataSourceBadge">Hybrid</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Status</span>
+            <span class="metric-value" id="appStatus">Idle</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel form-panel">
+          <div class="panel-heading">
+            <h2>Research Setup</h2>
+            <div class="header-actions">
+              <button class="ghost" id="searchSymbolsBtn" type="button">Search Symbols</button>
+              <button class="ghost" id="validateSymbolBtn" type="button">Validate Symbol</button>
+            </div>
+          </div>
+
+          <label>
+            <span>Symbol or company</span>
+            <input id="tickerInput" type="text" placeholder="NVDA or NVIDIA" value="NVDA" />
+            <small>Type a ticker or company name, then choose from the search results before you start a run.</small>
+          </label>
+
+          <div class="search-results-card" id="searchResultsCard" hidden>
+            <div class="search-results-header">
+              <h3>Matching Symbols</h3>
+              <small id="searchResultsMeta">Start typing to search.</small>
+            </div>
+            <div class="search-results" id="searchResults"></div>
+          </div>
+
+          <div class="selected-symbol-card" id="selectedSymbolCard" hidden>
+            <span class="selected-symbol-label">Selected Symbol</span>
+            <div id="selectedSymbolText">No symbol selected.</div>
+          </div>
+
+          <label>
+            <span>Analysis date</span>
+            <input id="analysisDateInput" type="date" />
+          </label>
+
+          <div class="two-up">
+            <label>
+              <span>LLM provider</span>
+              <select id="providerSelect"></select>
+            </label>
+            <label>
+              <span>Output language</span>
+              <select id="languageSelect">
+                <option>English</option>
+                <option>Chinese</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>API key</span>
+            <input id="apiKeyInput" type="password" placeholder="Optional for remote providers" />
+            <small id="apiKeyHelpText">API keys stay in the browser for this session and are only sent when you validate or start a run.</small>
+          </label>
+
+          <label>
+            <span>Base URL override</span>
+            <input id="baseUrlInput" type="text" placeholder="Optional custom chat-completions endpoint" />
+          </label>
+
+          <div class="model-grid">
+            <label>
+              <span>Quick model</span>
+              <select id="quickModelSelect"></select>
+            </label>
+            <label id="quickModelCustomLabel" hidden>
+              <span>Quick model ID</span>
+              <input id="quickModelCustomInput" type="text" placeholder="Enter a custom quick model ID" />
+            </label>
+          </div>
+
+          <div class="model-grid">
+            <label>
+              <span>Deep model</span>
+              <select id="deepModelSelect"></select>
+            </label>
+            <label id="deepModelCustomLabel" hidden>
+              <span>Deep model ID</span>
+              <input id="deepModelCustomInput" type="text" placeholder="Enter a custom deep model ID" />
+            </label>
+          </div>
+
+          <div class="two-up" id="providerReasoningGroup">
+            <label id="googleThinkingLabel" hidden>
+              <span>Google thinking level</span>
+              <select id="googleThinkingLevelSelect">
+                <option value="">Default</option>
+                <option value="minimal">Minimal</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label id="openaiReasoningLabel" hidden>
+              <span>Reasoning effort</span>
+              <select id="openaiReasoningEffortSelect">
+                <option value="">Default</option>
+                <option value="minimal">Minimal</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label id="anthropicEffortLabel" hidden>
+              <span>Anthropic effort</span>
+              <select id="anthropicEffortSelect">
+                <option value="">Default</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Research depth</span>
+            <input id="depthInput" type="range" min="1" max="5" value="1" />
+            <small id="depthLabel">1</small>
+          </label>
+
+          <fieldset class="analyst-group">
+            <legend>Analyst desks</legend>
+            <label><input type="checkbox" value="market" checked /> Market Analyst</label>
+            <label><input type="checkbox" value="social" checked /> Social Analyst</label>
+            <label><input type="checkbox" value="news" checked /> News Analyst</label>
+            <label><input type="checkbox" value="fundamentals" checked /> Fundamentals Analyst</label>
+          </fieldset>
+
+          <div class="actions">
+            <button class="primary" id="startRunBtn" type="button">Start Research Run</button>
+            <button class="ghost" id="validateProviderBtn" type="button">Validate Provider</button>
+          </div>
+
+          <div class="resolution-card" id="resolutionCard">
+            <h3>Symbol Resolution</h3>
+            <pre id="resolutionText">No symbol has been validated yet.</pre>
+          </div>
+        </section>
+
+        <section class="panel status-panel">
+          <div class="panel-heading">
+            <h2>Run State</h2>
+            <span class="pill" id="runPill">Idle</span>
+          </div>
+          <div class="agent-board" id="agentBoard"></div>
+          <div class="timeline">
+            <div class="timeline-header">
+              <h3>Live Feed</h3>
+            </div>
+            <div class="feed" id="feed"></div>
+          </div>
+        </section>
+
+        <section class="panel report-panel">
+          <div class="panel-heading">
+            <h2>Research Output</h2>
+            <div class="header-actions">
+              <button class="ghost" id="refreshResultBtn" type="button">Refresh Latest Snapshot</button>
+              <button class="ghost" id="exportPdfBtn" type="button" disabled>Export PDF</button>
+            </div>
+          </div>
+          <div class="decision-card">
+            <span class="decision-label">Final Signal</span>
+            <strong id="finalSignal">Pending</strong>
+            <p id="finalSummary">No completed run yet.</p>
+          </div>
+          <div class="reports" id="reports"></div>
+        </section>
+      </main>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
