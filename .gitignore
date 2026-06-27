@@ -8,9 +8,12 @@ coverage.xml
 .venv/
 dist/
 build/
+node_modules/
+.next/
 *.egg-info/
 .env
 .env.*
+!frontend/.env.local.example
 .envrc
 .marketmind_ai/
 .marketmind/
@@ -24,3 +27,4 @@ build/
 .ruff_cache/
 .idea/
 .vscode/
+.superpowers/

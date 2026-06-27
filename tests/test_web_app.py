@@ -25,6 +25,7 @@ class WebAppSmokeTests(unittest.TestCase):
         providers = self.client.get("/api/providers")
         self.assertEqual(providers.status_code, 200)
         self.assertGreaterEqual(len(providers.json()), 5)
+        self.assertIn("base_url", providers.json()[0])
         alias = self.client.get("/providers/models")
         self.assertEqual(alias.status_code, 200)
         self.assertEqual(alias.json(), providers.json())
