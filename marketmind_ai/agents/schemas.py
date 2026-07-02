@@ -44,6 +44,11 @@ class EvidenceItem(BaseModel):
     excerpt: str = Field(description="A short cited excerpt or metric.")
     interpretation: str = Field(description="Why the excerpt matters.")
     strength: EvidenceStrength = Field(description="How strongly the item supports the claim.")
+    provider: str = Field(default="", description="Data provider or retrieval system behind the source.")
+    url: str = Field(default="", description="Direct source URL or stable internal source URI.")
+    source_type: str = Field(default="", description="Source class such as price, news, filing, or fundamentals.")
+    retrieved_at: str = Field(default="", description="Timestamp when the evidence source was retrieved.")
+    raw_source_id: str = Field(default="", description="Stable provider-native or internal source identifier.")
 
     @model_validator(mode="after")
     def validate_non_empty_fields(self) -> "EvidenceItem":

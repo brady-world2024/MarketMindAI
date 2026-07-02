@@ -103,12 +103,19 @@ def _evidence_ledger_section(ledger: list[dict[str, Any]]) -> str:
     for item in ledger:
         source = item.get("source") or "Unknown"
         source_date = item.get("source_date") or "Unknown date"
+        provider = item.get("provider") or "Unknown provider"
+        source_type = item.get("source_type") or "Unknown type"
+        url = item.get("url") or ""
+        provenance = f"{provider} · {source_type}"
+        if url:
+            provenance += f"\n{url}"
         rows.append(
             "<tr>"
             f'<td class="evidence-id">{escape(str(item.get("evidence_id") or ""))}</td>'
             f"<td>{escape(str(item.get('claim') or ''))}</td>"
             f"<td>{escape(str(item.get('kind') or ''))}</td>"
             f"<td>{escape(str(source))}<br /><span>{escape(str(source_date))}</span></td>"
+            f"<td>{escape(provenance).replace(chr(10), '<br />')}</td>"
             f"<td>{escape(str(item.get('excerpt') or ''))}</td>"
             f"<td>{escape(str(item.get('freshness') or ''))}</td>"
             "</tr>"
@@ -119,7 +126,7 @@ def _evidence_ledger_section(ledger: list[dict[str, Any]]) -> str:
         '<div class="table-wrap">'
         '<table class="evidence-table">'
         "<thead><tr>"
-        "<th>ID</th><th>Claim</th><th>Kind</th><th>Source</th><th>Excerpt</th><th>Freshness</th>"
+        "<th>ID</th><th>Claim</th><th>Kind</th><th>Source</th><th>Provenance</th><th>Excerpt</th><th>Freshness</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table>"

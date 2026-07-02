@@ -30,6 +30,9 @@ def build_evidence_ledger(
                 "supports": supports,
                 "provider": _text(item.get("provider")),
                 "url": _text(item.get("url") or item.get("link")),
+                "source_type": _text(item.get("source_type")),
+                "retrieved_at": _text(item.get("retrieved_at")),
+                "raw_source_id": _text(item.get("raw_source_id")),
             }
         )
     return rows
@@ -52,17 +55,19 @@ class ReportQualityScorer:
             "evidence_count": self._evidence_count(ledger),
             "fact_coverage": self._fact_coverage(ledger),
             "source_diversity": self._source_diversity(ledger),
+            "provenance": self._provenance(ledger),
             "data_freshness": self._data_freshness(ledger),
             "risk_balance": self._risk_balance(decision),
             "verification": self._verification(verification or {}),
         }
         weights = {
-            "evidence_count": 0.20,
-            "fact_coverage": 0.15,
-            "source_diversity": 0.15,
-            "data_freshness": 0.20,
-            "risk_balance": 0.15,
-            "verification": 0.15,
+            "evidence_count": 0.18,
+            "fact_coverage": 0.14,
+            "source_diversity": 0.14,
+            "provenance": 0.08,
+            "data_freshness": 0.18,
+            "risk_balance": 0.14,
+            "verification": 0.14,
         }
         total = round(sum(dimensions[key]["score"] * weights[key] for key in dimensions))
         issues = self._issues(ledger, decision, verification or {})
@@ -114,6 +119,20 @@ class ReportQualityScorer:
         else:
             score = 0
         return {"score": score, "label": "Source Diversity", "detail": f"{count} unique sources"}
+
+    @staticmethod
+    def _provenance(ledger: list[dict[str, Any]]) -> dict[str, Any]:
+        fields = ("provider", "url", "source_type", "retrieved_at", "raw_source_id")
+        if not ledger:
+            return {"score": 0, "label": "Source Provenance", "detail": "No evidence provenance"}
+        total_fields = len(ledger) * len(fields)
+        present_fields = sum(1 for item in ledger for field in fields if item.get(field))
+        score = int(round((present_fields / total_fields) * 100)) if total_fields else 0
+        return {
+            "score": score,
+            "label": "Source Provenance",
+            "detail": f"{present_fields}/{total_fields} provenance fields present",
+        }
 
     @staticmethod
     def _data_freshness(ledger: list[dict[str, Any]]) -> dict[str, Any]:
@@ -182,6 +201,14 @@ class ReportQualityScorer:
                 {
                     "code": "stale_evidence",
                     "message": "One or more evidence items are stale relative to the analysis date.",
+                }
+            )
+        provenance_fields = ("provider", "url", "source_type", "retrieved_at", "raw_source_id")
+        if any(any(not item.get(field) for field in provenance_fields) for item in ledger):
+            issues.append(
+                {
+                    "code": "missing_source_provenance",
+                    "message": "One or more evidence items are missing provider, URL, type, retrieval time, or raw source ID.",
                 }
             )
         if not [item for item in decision.get("key_risks") or [] if _text(item)]:

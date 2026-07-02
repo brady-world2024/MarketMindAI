@@ -76,33 +76,58 @@ class AutonomousRuntime:
     def evidence_pack(self) -> list[EvidenceItem]:
         bundle = self.bundle()
         scores = self.scores()
+        symbol = self.resolution["resolved_symbol"]
+        retrieved_at = f"{self.request.analysis_date}T00:00:00Z"
+        latest_bar_date = bundle.market.bars[-1].date
+        news_item = bundle.news[0] if bundle.news else None
+        news_date = news_item.published_at if news_item else latest_bar_date
+        news_url = (
+            news_item.url
+            if news_item and news_item.url
+            else f"marketmind://{bundle.data_source}/{symbol}/news/{news_date}/1"
+        )
         return [
             EvidenceItem(
                 claim=f"20-session price change is {bundle.market.change_20d_pct:.1f}% and the tape score is {scores['market']:.1f}.",
                 evidence_type=EvidenceKind.FACT,
                 source="Market Analyst",
-                source_date=bundle.market.bars[-1].date,
+                source_date=latest_bar_date,
                 excerpt=f"Close={bundle.market.latest_close:.2f}, RSI={bundle.market.indicators.rsi_14 or 0:.1f}",
                 interpretation="Recent price structure and momentum still matter for timing and conviction.",
                 strength=EvidenceStrength.HIGH if scores["market"] > 10 else EvidenceStrength.MEDIUM,
+                provider=bundle.data_source,
+                url=f"marketmind://{bundle.data_source}/{symbol}/prices/{latest_bar_date}",
+                source_type="price",
+                retrieved_at=retrieved_at,
+                raw_source_id=f"{symbol}:price:{latest_bar_date}",
             ),
             EvidenceItem(
                 claim=f"News and sentiment combined indicate a catalyst tone of {bundle.sentiment_score:.2f}.",
                 evidence_type=EvidenceKind.FACT,
                 source="News Analyst",
-                source_date=bundle.news[0].published_at if bundle.news else bundle.market.bars[-1].date,
-                excerpt=bundle.news[0].title if bundle.news else "No recent headlines were returned.",
+                source_date=news_date,
+                excerpt=news_item.title if news_item else "No recent headlines were returned.",
                 interpretation="Fresh catalysts strengthen or weaken follow-through beyond the chart alone.",
                 strength=EvidenceStrength.MEDIUM,
+                provider=bundle.data_source,
+                url=news_url,
+                source_type="news",
+                retrieved_at=retrieved_at,
+                raw_source_id=f"{symbol}:news:{news_date}:1",
             ),
             EvidenceItem(
                 claim=f"Business quality reflects revenue growth {bundle.fundamentals.revenue_growth or 0:.2f} and operating margin {bundle.fundamentals.operating_margin or 0:.2f}.",
                 evidence_type=EvidenceKind.FACT,
                 source="Fundamentals Analyst",
-                source_date=bundle.market.bars[-1].date,
+                source_date=latest_bar_date,
                 excerpt=f"Debt/Equity={bundle.fundamentals.debt_to_equity or 0:.2f}, P/E={bundle.fundamentals.trailing_pe or 0:.1f}",
                 interpretation="Growth durability and balance-sheet resilience constrain how much risk the setup deserves.",
                 strength=EvidenceStrength.HIGH if scores["fundamentals"] > 6 else EvidenceStrength.MEDIUM,
+                provider=bundle.data_source,
+                url=f"marketmind://{bundle.data_source}/{symbol}/fundamentals/{latest_bar_date}",
+                source_type="fundamentals",
+                retrieved_at=retrieved_at,
+                raw_source_id=f"{symbol}:fundamentals:{latest_bar_date}",
             ),
         ]
 
