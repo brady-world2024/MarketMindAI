@@ -1,4 +1,6 @@
 from marketmind_ai.agents.schemas import (
+    ClaimSupportLevel,
+    CoreClaim,
     DecisionStatus,
     EvidenceItem,
     EvidenceKind,
@@ -19,6 +21,18 @@ def _stale_evidence(source: str) -> EvidenceItem:
         excerpt="Old metric still looked constructive.",
         interpretation="The item is too old to carry an actionable call.",
         strength=EvidenceStrength.MEDIUM,
+    )
+
+
+def _fresh_evidence(source: str) -> EvidenceItem:
+    return EvidenceItem(
+        claim=f"{source} supports the thesis with current evidence.",
+        evidence_type=EvidenceKind.FACT,
+        source=source,
+        source_date="2026-06-12",
+        excerpt="Current metric looked constructive.",
+        interpretation="The item is fresh enough to carry an actionable call.",
+        strength=EvidenceStrength.HIGH,
     )
 
 
@@ -54,3 +68,45 @@ def test_quality_gate_downgrades_actionable_decisions_with_stale_evidence():
     assert final_decision.time_horizon is None
     assert "quality gate" in final_decision.evidence_gap
     assert "stale_evidence" in {issue["code"] for issue in payload["report_quality"]["issues"]}
+
+
+def test_quality_gate_downgrades_actionable_decisions_with_unsupported_core_claims():
+    engine = GraphResearchEngine.__new__(GraphResearchEngine)
+    engine.verifier = DecisionVerifier()
+    engine.resolution = {"resolved_symbol": "NVDA"}
+    state = {
+        "investment_plan": "**Recommendation Status**: Actionable",
+        "trader_investment_plan": "**Action Status**: Actionable\n\nStop if the breakout fails.",
+        "trade_date": "2026-06-12",
+        "calibration_summary": {},
+    }
+    decision = PortfolioDecision(
+        decision_status=DecisionStatus.ACTIONABLE,
+        rating=PortfolioRating.OVERWEIGHT,
+        confidence=72,
+        confidence_rationale="The claim sounds strong but is not backed by the evidence ids.",
+        executive_summary="Scale in on confirmation.",
+        investment_thesis="Margins are guaranteed to expand.",
+        primary_evidence=[_fresh_evidence("Market Analyst"), _fresh_evidence("News Analyst")],
+        core_claims=[
+            CoreClaim(
+                claim="Margins are guaranteed to expand.",
+                evidence_ids=["E9"],
+                support_level=ClaimSupportLevel.SUPPORTED,
+            )
+        ],
+        key_risks=["Valuation remains demanding."],
+        counterargument="Valuation could cap upside.",
+        counterargument_evidence_ids=["E2"],
+        counterargument_response="Sizing should remain disciplined.",
+        evidence_gap="Fresh confirmation is still needed.",
+        price_target=1179.46,
+        time_horizon="1-4 weeks",
+    )
+
+    final_decision, payload = engine._verify_and_payload(state, decision)
+
+    assert final_decision.decision_status == DecisionStatus.NO_RECOMMENDATION
+    assert final_decision.rating is None
+    assert final_decision.confidence <= 49
+    assert "unsupported_core_claim" in {issue["code"] for issue in payload["report_quality"]["issues"]}

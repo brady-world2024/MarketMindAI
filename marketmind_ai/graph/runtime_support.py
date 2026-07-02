@@ -467,9 +467,20 @@ class GraphResearchEngine:
             "missing_key_risks",
             "missing_evidence_gap",
             "verifier_failed",
+            "unsupported_core_claim",
         }
         issue_codes = {str(issue.get("code")) for issue in report_quality.get("issues", []) if isinstance(issue, dict)}
-        return report_quality.get("grade") == "Weak" or bool(blocking_codes & issue_codes)
+        missing_counterargument = {
+            "missing_counterargument",
+            "missing_counterargument_response",
+        }
+        has_weak_claim_support = "weak_claim_support" in issue_codes
+        has_missing_counterargument = bool(missing_counterargument & issue_codes)
+        return (
+            report_quality.get("grade") == "Weak"
+            or bool(blocking_codes & issue_codes)
+            or (has_weak_claim_support and has_missing_counterargument)
+        )
 
     @staticmethod
     def _downgrade_for_quality(decision: PortfolioDecision, report_quality: dict) -> PortfolioDecision:
