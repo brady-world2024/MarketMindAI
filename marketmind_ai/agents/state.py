@@ -50,7 +50,8 @@ class MarketMindState(MessagesState):
     pre_verifier_final_trade_decision: Annotated[str, "Portfolio manager raw decision"]
     final_trade_decision: Annotated[str, "Verifier-adjusted final decision"]
     report_verification: Annotated[dict, "Deterministic verification payload"]
+    report_quality: Annotated[dict, "Report quality scoring payload"]
+    evidence_ledger: Annotated[list[dict], "Auditable evidence ledger for the final report"]
     symbol_resolution: Annotated[dict, "Ticker resolution payload"]
     final_structured_decision: Annotated[dict, "Structured PM decision for UI/state persistence"]
     last_error: Annotated[Optional[str], "Latest runtime error"]
-

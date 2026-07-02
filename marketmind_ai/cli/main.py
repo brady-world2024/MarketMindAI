@@ -354,7 +354,7 @@ def serve_command(
 
 def main(argv: Optional[list[str]] = None) -> int:
     try:
-        app(args=argv or [], prog_name=CLI_PROG, standalone_mode=False)
+        app(args=argv, prog_name=CLI_PROG, standalone_mode=False)
         return 0
     except SystemExit as exc:  # pragma: no cover - delegated CLI exit path
         code = exc.code if isinstance(exc.code, int) else 1

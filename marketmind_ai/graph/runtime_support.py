@@ -34,6 +34,7 @@ from ..agents.schemas import (
 from ..agents.utils import AnalysisContext, build_toolsets, create_msg_delete, score_bundle
 from ..graph.decision import FinalDecision
 from ..llm_clients import ModelBundle, build_model_bundle
+from ..reporting import ReportQualityScorer, build_evidence_ledger
 from ..verification import DecisionVerifier
 from .conditional_logic import ConditionalLogic as GraphConditionalLogic
 from .offline_reports import bear_case, bull_bear_lists, bull_case, fundamentals_report, market_report, news_report, sentiment_report
@@ -393,16 +394,7 @@ class GraphResearchEngine:
         )
 
     def _verify_decision(self, state, decision: PortfolioDecision) -> PortfolioDecision:
-        from ..agents.schemas import render_portfolio_decision
-
-        final_state = {
-            "final_trade_decision": render_portfolio_decision(decision),
-            "pre_verifier_final_trade_decision": render_portfolio_decision(decision),
-            "investment_plan": state["investment_plan"],
-            "trader_investment_plan": state["trader_investment_plan"],
-            "trade_date": state["trade_date"],
-            "company_of_interest": self.resolution["resolved_symbol"],
-        }
+        final_state = self._final_state_for_verification(state, decision)
         result = self.verifier.verify_final_state(
             final_state,
             self.resolution,
@@ -417,24 +409,74 @@ class GraphResearchEngine:
 
     def _verify_and_payload(self, state, decision: PortfolioDecision) -> tuple[PortfolioDecision, dict]:
         final_decision = self._verify_decision(state, decision)
-        return final_decision, self._verification_payload(state, final_decision)
+        reporting_payload = self._reporting_payload(state, final_decision)
+        if (
+            final_decision.decision_status == DecisionStatus.ACTIONABLE
+            and self._quality_blocks_actionable(reporting_payload["report_quality"])
+        ):
+            final_decision = self._downgrade_for_quality(final_decision, reporting_payload["report_quality"])
+            reporting_payload = self._reporting_payload(state, final_decision)
+        return final_decision, reporting_payload
+
+    def _reporting_payload(self, state, final_decision: PortfolioDecision) -> dict:
+        verification = self._verification_payload(state, final_decision)
+        structured = final_decision.model_dump(mode="json")
+        evidence_ledger = build_evidence_ledger(structured, analysis_date=state["trade_date"])
+        report_quality = ReportQualityScorer().score(
+            final_state=self._final_state_for_verification(state, final_decision),
+            structured_decision=structured,
+            verification=verification,
+        )
+        return {
+            "verification": verification,
+            "report_quality": report_quality,
+            "evidence_ledger": evidence_ledger,
+        }
+
+    @staticmethod
+    def _quality_blocks_actionable(report_quality: dict) -> bool:
+        blocking_codes = {
+            "insufficient_evidence_count",
+            "stale_evidence",
+            "missing_key_risks",
+            "missing_evidence_gap",
+            "verifier_failed",
+        }
+        issue_codes = {str(issue.get("code")) for issue in report_quality.get("issues", []) if isinstance(issue, dict)}
+        return report_quality.get("grade") == "Weak" or bool(blocking_codes & issue_codes)
+
+    @staticmethod
+    def _downgrade_for_quality(decision: PortfolioDecision, report_quality: dict) -> PortfolioDecision:
+        downgraded = decision.model_copy(deep=True)
+        downgraded.decision_status = DecisionStatus.NO_RECOMMENDATION
+        downgraded.rating = None
+        downgraded.confidence = min(downgraded.confidence, 49)
+        downgraded.price_target = None
+        downgraded.time_horizon = None
+        summary = str(report_quality.get("summary") or "report quality did not clear the actionable threshold")
+        downgraded.evidence_gap = (downgraded.evidence_gap + "; quality gate downgrade: " + summary).strip()
+        return downgraded
 
     def _verification_payload(self, state, decision: PortfolioDecision) -> dict:
-        from ..agents.schemas import render_portfolio_decision
-
-        final_state = {
-            "final_trade_decision": render_portfolio_decision(decision),
-            "pre_verifier_final_trade_decision": render_portfolio_decision(decision),
-            "investment_plan": state["investment_plan"],
-            "trader_investment_plan": state["trader_investment_plan"],
-            "trade_date": state["trade_date"],
-            "company_of_interest": self.resolution["resolved_symbol"],
-        }
+        final_state = self._final_state_for_verification(state, decision)
         result = self.verifier.verify_final_state(
             final_state,
             self.resolution,
         )
         return result.to_dict()
+
+    def _final_state_for_verification(self, state, decision: PortfolioDecision) -> dict:
+        from ..agents.schemas import render_portfolio_decision
+
+        rendered = render_portfolio_decision(decision)
+        return {
+            "final_trade_decision": rendered,
+            "pre_verifier_final_trade_decision": rendered,
+            "investment_plan": state["investment_plan"],
+            "trader_investment_plan": state["trader_investment_plan"],
+            "trade_date": state["trade_date"],
+            "company_of_interest": self.resolution["resolved_symbol"],
+        }
 
     @staticmethod
     def _runtime_key(value: str) -> str:

@@ -117,6 +117,10 @@ class SnapshotProjector:
             self._set_report(snapshot, "final_trade_decision", state["final_trade_decision"])
             self._set_agent(snapshot, "portfolio_manager", "completed")
             snapshot.final_decision = state["final_trade_decision"]
+            snapshot.report_verification = state.get("report_verification") or None
+            snapshot.final_structured_decision = state.get("final_structured_decision") or None
+            snapshot.report_quality = state.get("report_quality") or None
+            snapshot.evidence_ledger = state.get("evidence_ledger") or []
             snapshot.final_signal = self.signal_processor.process_signal(
                 state["final_trade_decision"],
                 state.get("report_verification"),
@@ -178,6 +182,8 @@ class SnapshotProjector:
             "pre_verifier_final_trade_decision": state.get("pre_verifier_final_trade_decision", ""),
             "final_trade_decision": state.get("final_trade_decision", ""),
             "report_verification": state.get("report_verification", {}),
+            "report_quality": state.get("report_quality", {}),
+            "evidence_ledger": state.get("evidence_ledger", []),
             "final_structured_decision": state.get("final_structured_decision", {}),
         }
 

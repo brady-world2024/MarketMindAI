@@ -93,6 +93,10 @@ class RunSnapshot:
     reports: List[ReportSectionView] = field(default_factory=list)
     final_signal: Optional[str] = None
     final_decision: Optional[str] = None
+    report_verification: Optional[dict] = None
+    final_structured_decision: Optional[dict] = None
+    report_quality: Optional[dict] = None
+    evidence_ledger: List[dict] = field(default_factory=list)
     error: Optional[str] = None
 
     @classmethod

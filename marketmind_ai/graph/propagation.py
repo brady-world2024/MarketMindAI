@@ -68,6 +68,8 @@ class Propagator:
             "pre_verifier_final_trade_decision": "",
             "final_trade_decision": "",
             "report_verification": {},
+            "report_quality": {},
+            "evidence_ledger": [],
             "symbol_resolution": symbol_resolution,
             "final_structured_decision": {},
             "last_error": None,

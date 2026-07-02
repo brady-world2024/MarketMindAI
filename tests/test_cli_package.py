@@ -1,9 +1,10 @@
 import unittest
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from marketmind_ai.cli.announcements import fetch_announcements
-from marketmind_ai.cli.main import app
+from marketmind_ai.cli.main import app, main
 from marketmind_ai.cli.stats_handler import StatsCallbackHandler
 
 
@@ -17,6 +18,13 @@ class CliPackageTests(unittest.TestCase):
         self.assertIn("resolve", result.stdout)
         self.assertIn("validate-provider", result.stdout)
         self.assertIn("serve", result.stdout)
+
+    @patch("marketmind_ai.cli.main.app")
+    def test_main_without_explicit_argv_allows_typer_to_read_process_args(self, mock_app):
+        result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIsNone(mock_app.call_args.kwargs["args"])
 
     def test_fetch_announcements_without_config_returns_empty_payload(self):
         payload = fetch_announcements(url="")

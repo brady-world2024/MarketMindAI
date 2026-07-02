@@ -37,7 +37,15 @@ def create_portfolio_manager(llm, offline_runtime, verifier_callback):
                 decision = offline_runtime.offline_portfolio_decision(research_plan, trader_plan)
 
         raw_text = render_portfolio_decision(decision)
-        final_decision, verification = verifier_callback(state, decision)
+        final_decision, reporting_payload = verifier_callback(state, decision)
+        if "verification" in reporting_payload:
+            verification = reporting_payload.get("verification", {})
+            report_quality = reporting_payload.get("report_quality", {})
+            evidence_ledger = reporting_payload.get("evidence_ledger", [])
+        else:
+            verification = reporting_payload
+            report_quality = {}
+            evidence_ledger = []
         final_text = render_portfolio_decision(final_decision)
         risk = state["risk_debate_state"]
         return {
@@ -56,6 +64,8 @@ def create_portfolio_manager(llm, offline_runtime, verifier_callback):
             "pre_verifier_final_trade_decision": raw_text,
             "final_trade_decision": final_text,
             "report_verification": verification,
+            "report_quality": report_quality,
+            "evidence_ledger": evidence_ledger,
             "final_structured_decision": final_decision.model_dump(mode="json"),
             "sender": "Portfolio Manager",
         }

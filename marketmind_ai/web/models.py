@@ -223,6 +223,10 @@ class RunSnapshot(BaseModel):
     reports: list[ReportSectionView]
     final_signal: Optional[str] = None
     final_decision: Optional[str] = None
+    report_verification: Optional[dict] = None
+    final_structured_decision: Optional[dict] = None
+    report_quality: Optional[dict] = None
+    evidence_ledger: list[dict] = Field(default_factory=list)
     error: Optional[str] = None
 
 
