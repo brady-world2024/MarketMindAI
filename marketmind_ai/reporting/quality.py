@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Mapping
+
+
+_CONFIDENCE_BUCKETS = (
+    (0, 39, "0-39"),
+    (40, 59, "40-59"),
+    (60, 79, "60-79"),
+    (80, 100, "80-100"),
+)
 
 
 def build_evidence_ledger(
@@ -47,6 +56,7 @@ class ReportQualityScorer:
         final_state: Mapping[str, Any],
         structured_decision: Mapping[str, Any] | Any,
         verification: Mapping[str, Any] | None = None,
+        calibration_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         decision = _as_mapping(structured_decision)
         analysis_date = _text(final_state.get("trade_date"))
@@ -60,17 +70,12 @@ class ReportQualityScorer:
             "risk_balance": self._risk_balance(decision),
             "verification": self._verification(verification or {}),
         }
-        weights = {
-            "evidence_count": 0.18,
-            "fact_coverage": 0.14,
-            "source_diversity": 0.14,
-            "provenance": 0.08,
-            "data_freshness": 0.18,
-            "risk_balance": 0.14,
-            "verification": 0.14,
-        }
+        if calibration_summary is not None:
+            dimensions["confidence_calibration"] = self._confidence_calibration(decision, calibration_summary)
+
+        weights = self._weights(include_calibration=calibration_summary is not None)
         total = round(sum(dimensions[key]["score"] * weights[key] for key in dimensions))
-        issues = self._issues(ledger, decision, verification or {})
+        issues = self._issues(ledger, decision, verification or {}, dimensions.get("confidence_calibration"))
         grade = "Strong" if total >= 80 else "Adequate" if total >= 60 else "Weak"
         return {
             "score": int(total),
@@ -183,10 +188,84 @@ class ReportQualityScorer:
         return {"score": score, "label": "Verification", "detail": detail}
 
     @staticmethod
+    def _weights(*, include_calibration: bool) -> dict[str, float]:
+        if include_calibration:
+            return {
+                "evidence_count": 0.16,
+                "fact_coverage": 0.13,
+                "source_diversity": 0.12,
+                "provenance": 0.08,
+                "data_freshness": 0.16,
+                "risk_balance": 0.13,
+                "verification": 0.12,
+                "confidence_calibration": 0.10,
+            }
+        return {
+            "evidence_count": 0.18,
+            "fact_coverage": 0.14,
+            "source_diversity": 0.14,
+            "provenance": 0.08,
+            "data_freshness": 0.18,
+            "risk_balance": 0.14,
+            "verification": 0.14,
+        }
+
+    @staticmethod
+    def _confidence_calibration(
+        decision: Mapping[str, Any],
+        calibration_summary: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        confidence = _confidence_value(decision.get("confidence"))
+        if confidence is None:
+            return {
+                "score": 45,
+                "label": "Confidence Calibration",
+                "detail": "No confidence score available for historical calibration.",
+                "bucket": "",
+                "confidence": None,
+                "count": 0,
+                "hit_rate": None,
+                "avg_alpha_return": None,
+            }
+
+        bucket_label = _confidence_bucket_label(confidence)
+        bucket = _matching_confidence_bucket(calibration_summary, bucket_label)
+        count = _int_value(bucket.get("count") if bucket else None) or 0
+        hit_rate = _float_value(bucket.get("hit_rate") if bucket else None)
+        avg_alpha_return = _float_value(bucket.get("avg_alpha_return") if bucket else None)
+
+        if count == 0:
+            score = 55
+            detail = f"Confidence {confidence} falls in bucket {bucket_label} with no resolved outcomes yet."
+        else:
+            hit_component = 50 if hit_rate is None else max(0, min(100, round(hit_rate * 100)))
+            alpha_component = _alpha_score(avg_alpha_return)
+            score = round((hit_component * 0.7) + (alpha_component * 0.3))
+            if count < 3:
+                score = min(score, 70)
+            detail = (
+                f"Confidence {confidence} falls in bucket {bucket_label} with {count} resolved outcomes, "
+                f"{_format_percent(hit_rate)} hit rate, "
+                f"{_format_percent(avg_alpha_return, signed=True)} average alpha."
+            )
+
+        return {
+            "score": int(score),
+            "label": "Confidence Calibration",
+            "detail": detail,
+            "bucket": bucket_label,
+            "confidence": confidence,
+            "count": count,
+            "hit_rate": hit_rate,
+            "avg_alpha_return": avg_alpha_return,
+        }
+
+    @staticmethod
     def _issues(
         ledger: list[dict[str, Any]],
         decision: Mapping[str, Any],
         verification: Mapping[str, Any],
+        calibration: Mapping[str, Any] | None = None,
     ) -> list[dict[str, str]]:
         issues: list[dict[str, str]] = []
         if len(ledger) < 2:
@@ -232,6 +311,31 @@ class ReportQualityScorer:
                     "message": "The deterministic verifier did not pass cleanly.",
                 }
             )
+        if calibration:
+            count = _int_value(calibration.get("count")) or 0
+            if calibration.get("confidence") is None:
+                issues.append(
+                    {
+                        "code": "missing_confidence_for_calibration",
+                        "message": (
+                            "The report needs a numeric confidence score before historical calibration can be assessed."
+                        ),
+                    }
+                )
+            elif count < 3:
+                issues.append(
+                    {
+                        "code": "limited_confidence_history",
+                        "message": "Fewer than three resolved outcomes exist for this confidence bucket.",
+                    }
+                )
+            elif int(calibration.get("score", 0)) < 50:
+                issues.append(
+                    {
+                        "code": "weak_confidence_calibration",
+                        "message": "This confidence bucket has weak historical hit rate or alpha performance.",
+                    }
+                )
         return issues
 
     @staticmethod
@@ -256,6 +360,76 @@ def _as_mapping(value: Mapping[str, Any] | Any) -> Mapping[str, Any]:
 def _evidence_items(decision: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     items = decision.get("primary_evidence") or []
     return [_as_mapping(item) for item in items]
+
+
+def _confidence_value(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return max(0, min(100, int(round(value))))
+    text = _text(value)
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return max(0, min(100, int(round(float(match.group(0))))))
+    except ValueError:
+        return None
+
+
+def _confidence_bucket_label(confidence: int) -> str:
+    for lower, upper, label in _CONFIDENCE_BUCKETS:
+        if lower <= confidence <= upper:
+            return label
+    return "80-100" if confidence > 100 else "0-39"
+
+
+def _matching_confidence_bucket(calibration_summary: Mapping[str, Any], label: str) -> Mapping[str, Any] | None:
+    buckets = calibration_summary.get("confidence_buckets") or []
+    for bucket in buckets:
+        if isinstance(bucket, Mapping) and _text(bucket.get("label")) == label:
+            return bucket
+    return None
+
+
+def _float_value(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_value(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _alpha_score(value: float | None) -> int:
+    if value is None:
+        return 50
+    if value >= 0.02:
+        return 100
+    if value > 0:
+        return 75
+    if value <= -0.02:
+        return 20
+    if value < 0:
+        return 40
+    return 60
+
+
+def _format_percent(value: float | None, *, signed: bool = False) -> str:
+    if value is None:
+        return "n/a"
+    percent = value * 100
+    prefix = "+" if signed and percent > 0 else ""
+    return f"{prefix}{percent:.0f}%"
 
 
 def _text(value: Any) -> str:

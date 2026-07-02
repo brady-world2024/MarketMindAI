@@ -34,6 +34,7 @@ class MarketMindGraphTests(unittest.TestCase):
             self.assertIsNotNone(final_snapshot.final_decision)
             final_payload = final_snapshot.to_dict()
             self.assertGreaterEqual(final_payload["report_quality"]["score"], 60)
+            self.assertIn("confidence_calibration", final_payload["report_quality"]["dimensions"])
             self.assertTrue(final_payload["evidence_ledger"])
             for evidence in final_payload["evidence_ledger"]:
                 self.assertTrue(evidence["provider"])
