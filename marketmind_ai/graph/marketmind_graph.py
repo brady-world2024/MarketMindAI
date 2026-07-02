@@ -74,6 +74,7 @@ class MarketMindGraph:
         )
         ticker = resolution.resolved_symbol or request.ticker
         self.pending_outcomes.resolve_for_ticker(ticker, request.analysis_date, engine.models.quick)
+        calibration_summary = self.outcome_evaluator.build_summary()
         memory_contexts = self.memory_retriever.build_contexts(ticker, request.analysis_date)
         snapshot = self.projector.create_snapshot(
             run_id=run_id or datetime.utcnow().strftime("%Y%m%d%H%M%S"),
@@ -87,6 +88,7 @@ class MarketMindGraph:
         workflow = engine.build_graph()
         initial_state = engine.initial_state()
         initial_state["past_context"] = self.memory_log.get_past_context(ticker)
+        initial_state["calibration_summary"] = calibration_summary
         initial_state.update(memory_contexts)
         current_state = None
 

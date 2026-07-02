@@ -122,6 +122,54 @@ def test_report_quality_score_rewards_auditable_multi_source_evidence():
     assert result["issues"] == []
 
 
+def test_report_quality_score_rewards_well_calibrated_confidence_bucket():
+    result = ReportQualityScorer().score(
+        final_state={
+            "trade_date": "2026-06-12",
+            "investment_plan": "**Recommendation Status**: Actionable",
+            "trader_investment_plan": "**Action Status**: Actionable\n\nStop if the breakout fails.",
+        },
+        structured_decision=STRUCTURED_DECISION,
+        verification={"status": "passed", "issues": []},
+        calibration_summary={
+            "confidence_buckets": [
+                {"label": "0-39", "count": 1, "hit_rate": None, "avg_alpha_return": 0.0},
+                {"label": "40-59", "count": 2, "hit_rate": 0.5, "avg_alpha_return": 0.01},
+                {"label": "60-79", "count": 4, "hit_rate": 0.75, "avg_alpha_return": 0.04},
+                {"label": "80-100", "count": 3, "hit_rate": 0.33, "avg_alpha_return": -0.02},
+            ]
+        },
+    )
+
+    calibration = result["dimensions"]["confidence_calibration"]
+
+    assert calibration["bucket"] == "60-79"
+    assert calibration["count"] == 4
+    assert calibration["score"] >= 80
+    assert "75%" in calibration["detail"]
+    assert "weak_confidence_calibration" not in {issue["code"] for issue in result["issues"]}
+
+
+def test_report_quality_score_flags_weak_confidence_calibration():
+    result = ReportQualityScorer().score(
+        final_state={
+            "trade_date": "2026-06-12",
+            "investment_plan": "**Recommendation Status**: Actionable",
+            "trader_investment_plan": "**Action Status**: Actionable\n\nStop if the breakout fails.",
+        },
+        structured_decision=STRUCTURED_DECISION,
+        verification={"status": "passed", "issues": []},
+        calibration_summary={
+            "confidence_buckets": [
+                {"label": "60-79", "count": 5, "hit_rate": 0.2, "avg_alpha_return": -0.03},
+            ]
+        },
+    )
+
+    assert result["dimensions"]["confidence_calibration"]["score"] < 50
+    assert "weak_confidence_calibration" in {issue["code"] for issue in result["issues"]}
+
+
 def test_report_quality_score_penalizes_missing_source_provenance():
     missing_provenance = {
         **STRUCTURED_DECISION,

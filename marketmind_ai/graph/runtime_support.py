@@ -451,6 +451,7 @@ class GraphResearchEngine:
             final_state=self._final_state_for_verification(state, final_decision),
             structured_decision=structured,
             verification=verification,
+            calibration_summary=state.get("calibration_summary"),
         )
         return {
             "verification": verification,

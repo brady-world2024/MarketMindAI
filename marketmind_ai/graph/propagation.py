@@ -25,6 +25,7 @@ class Propagator:
         research_memory_context: str = "",
         trader_memory_context: str = "",
         portfolio_memory_context: str = "",
+        calibration_summary: dict | None = None,
     ) -> Dict[str, Any]:
         return {
             "messages": [HumanMessage(content=ticker)],
@@ -70,6 +71,7 @@ class Propagator:
             "report_verification": {},
             "report_quality": {},
             "evidence_ledger": [],
+            "calibration_summary": calibration_summary or {},
             "symbol_resolution": symbol_resolution,
             "final_structured_decision": {},
             "last_error": None,

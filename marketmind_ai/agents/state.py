@@ -52,6 +52,7 @@ class MarketMindState(MessagesState):
     report_verification: Annotated[dict, "Deterministic verification payload"]
     report_quality: Annotated[dict, "Report quality scoring payload"]
     evidence_ledger: Annotated[list[dict], "Auditable evidence ledger for the final report"]
+    calibration_summary: Annotated[dict, "Historical outcome summary for confidence calibration"]
     symbol_resolution: Annotated[dict, "Ticker resolution payload"]
     final_structured_decision: Annotated[dict, "Structured PM decision for UI/state persistence"]
     last_error: Annotated[Optional[str], "Latest runtime error"]
