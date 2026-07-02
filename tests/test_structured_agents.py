@@ -4,14 +4,18 @@ from unittest.mock import MagicMock
 
 from marketmind_ai.agents.managers.research_manager import create_research_manager
 from marketmind_ai.agents.schemas import (
+    ClaimSupportLevel,
+    CoreClaim,
     DecisionStatus,
     EvidenceItem,
     EvidenceKind,
     EvidenceStrength,
+    PortfolioDecision,
     PortfolioRating,
     ResearchPlan,
     TraderAction,
     TraderProposal,
+    render_portfolio_decision,
     render_research_plan,
     render_trader_proposal,
 )
@@ -213,6 +217,40 @@ class TestRenderTraderProposal(unittest.TestCase):
 
 
 class TestRenderResearchPlan(unittest.TestCase):
+    def test_core_claims_and_counterargument_render(self):
+        plan = ResearchPlan(
+            recommendation_status=DecisionStatus.ACTIONABLE,
+            recommendation=PortfolioRating.OVERWEIGHT,
+            confidence=72,
+            confidence_rationale="Fresh evidence supports a constructive stance, but valuation risk remains.",
+            rationale="Bull case carried; AI tailwind intact.",
+            primary_evidence=[_evidence_item("Market Analyst"), _evidence_item("Fundamentals Analyst")],
+            core_claims=[
+                CoreClaim(
+                    claim="Momentum and fundamentals both support a constructive stance.",
+                    evidence_ids=["E1", "E2"],
+                    support_level=ClaimSupportLevel.SUPPORTED,
+                )
+            ],
+            key_risks=["Valuation remains demanding."],
+            counterargument="Valuation could already price in the good news.",
+            counterargument_evidence_ids=["E2"],
+            counterargument_response=(
+                "The recommendation stays constructive because current evidence supports position discipline "
+                "rather than aggressive chasing."
+            ),
+            evidence_gap="Residual uncertainty remains around valuation sensitivity if growth slows.",
+            strategic_actions="Build position over two weeks; cap at 5%.",
+        )
+
+        md = render_research_plan(plan)
+
+        self.assertIn("**Core Claims**:", md)
+        self.assertIn("[supported] Momentum and fundamentals both support", md)
+        self.assertIn("Evidence: E1, E2", md)
+        self.assertIn("**Counterargument**: Valuation could already price", md)
+        self.assertIn("**Counterargument Response**:", md)
+
     def test_required_fields(self):
         plan = ResearchPlan(
             recommendation_status=DecisionStatus.ACTIONABLE,
@@ -280,6 +318,42 @@ class TestRenderResearchPlan(unittest.TestCase):
                 evidence_gap="Need direct factual confirmation from filings or price confirmation.",
                 strategic_actions="Wait for direct factual confirmation.",
             )
+
+
+class TestRenderPortfolioDecision(unittest.TestCase):
+    def test_core_claims_and_counterargument_render(self):
+        decision = PortfolioDecision(
+            decision_status=DecisionStatus.ACTIONABLE,
+            rating=PortfolioRating.OVERWEIGHT,
+            confidence=76,
+            confidence_rationale="Fresh evidence supports a constructive stance, but valuation risk remains.",
+            executive_summary="Scale in only while evidence stays aligned.",
+            investment_thesis="Momentum and fundamentals support a constructive stance.",
+            primary_evidence=[_evidence_item("Market Analyst"), _evidence_item("Fundamentals Analyst")],
+            core_claims=[
+                CoreClaim(
+                    claim="Momentum and fundamentals support a constructive stance.",
+                    evidence_ids=["E1", "E2"],
+                    support_level=ClaimSupportLevel.SUPPORTED,
+                )
+            ],
+            key_risks=["Valuation remains demanding."],
+            counterargument="Valuation could already price in the good news.",
+            counterargument_evidence_ids=["E2"],
+            counterargument_response=(
+                "The final call stays constructive because position sizing is capped and evidence remains fresh."
+            ),
+            evidence_gap="Residual uncertainty remains around valuation sensitivity if growth slows.",
+            price_target=1179.46,
+            time_horizon="1-4 weeks",
+        )
+
+        md = render_portfolio_decision(decision)
+
+        self.assertIn("**Core Claims**:", md)
+        self.assertIn("[supported] Momentum and fundamentals support", md)
+        self.assertIn("**Counterargument**: Valuation could already price", md)
+        self.assertIn("**Counterargument Response**:", md)
 
 
 class TestTraderAgent(unittest.TestCase):

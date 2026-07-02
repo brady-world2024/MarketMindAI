@@ -36,6 +36,25 @@ class EvidenceKind(str, Enum):
     JUDGMENT = "Judgment"
 
 
+class ClaimSupportLevel(str, Enum):
+    SUPPORTED = "supported"
+    WEAK = "weak"
+    UNSUPPORTED = "unsupported"
+
+
+class CoreClaim(BaseModel):
+    claim: str
+    evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+    support_level: ClaimSupportLevel = ClaimSupportLevel.WEAK
+
+    @model_validator(mode="after")
+    def validate_claim_text(self) -> "CoreClaim":
+        if not self.claim.strip():
+            raise ValueError("claim is required")
+        self.evidence_ids = [item.strip().upper() for item in self.evidence_ids if item.strip()]
+        return self
+
+
 class EvidenceItem(BaseModel):
     claim: str = Field(description="What this evidence supports.")
     evidence_type: EvidenceKind = Field(description="Whether the item is a Fact or a Judgment.")
@@ -65,7 +84,11 @@ class ResearchPlan(BaseModel):
     confidence_rationale: str
     rationale: str
     primary_evidence: list[EvidenceItem] = Field(min_length=1, max_length=5)
+    core_claims: list[CoreClaim] = Field(default_factory=list, max_length=5)
     key_risks: list[str] = Field(min_length=1, max_length=4)
+    counterargument: str = ""
+    counterargument_evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+    counterargument_response: str = ""
     evidence_gap: str
     strategic_actions: str
 
@@ -134,7 +157,11 @@ class PortfolioDecision(BaseModel):
     executive_summary: str
     investment_thesis: str
     primary_evidence: list[EvidenceItem] = Field(min_length=1, max_length=5)
+    core_claims: list[CoreClaim] = Field(default_factory=list, max_length=5)
     key_risks: list[str] = Field(min_length=1, max_length=4)
+    counterargument: str = ""
+    counterargument_evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+    counterargument_response: str = ""
     evidence_gap: str
     price_target: Optional[float] = None
     time_horizon: Optional[str] = None
@@ -178,8 +205,15 @@ def render_research_plan(plan: ResearchPlan) -> str:
         ]
     )
     parts.extend(_render_evidence_list(plan.primary_evidence))
+    parts.extend(_render_core_claims(plan.core_claims))
     parts.extend(["", "**Key Risks**:"])
     parts.extend(f"- {risk}" for risk in plan.key_risks)
+    if plan.counterargument:
+        parts.extend(["", f"**Counterargument**: {plan.counterargument}"])
+    if plan.counterargument_evidence_ids:
+        parts.extend(["", f"**Counterargument Evidence**: {', '.join(plan.counterargument_evidence_ids)}"])
+    if plan.counterargument_response:
+        parts.extend(["", f"**Counterargument Response**: {plan.counterargument_response}"])
     parts.extend(["", f"**Evidence Gap**: {plan.evidence_gap}"])
     parts.extend(["", f"**Strategic Actions**: {plan.strategic_actions}"])
     return "\n".join(parts)
@@ -233,14 +267,31 @@ def render_portfolio_decision(decision: PortfolioDecision) -> str:
         ]
     )
     parts.extend(_render_evidence_list(decision.primary_evidence))
+    parts.extend(_render_core_claims(decision.core_claims))
     parts.extend(["", "**Key Risks**:"])
     parts.extend(f"- {risk}" for risk in decision.key_risks)
+    if decision.counterargument:
+        parts.extend(["", f"**Counterargument**: {decision.counterargument}"])
+    if decision.counterargument_evidence_ids:
+        parts.extend(["", f"**Counterargument Evidence**: {', '.join(decision.counterargument_evidence_ids)}"])
+    if decision.counterargument_response:
+        parts.extend(["", f"**Counterargument Response**: {decision.counterargument_response}"])
     parts.extend(["", f"**Evidence Gap**: {decision.evidence_gap}"])
     if decision.price_target is not None:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     return "\n".join(parts)
+
+
+def _render_core_claims(items: list[CoreClaim]) -> list[str]:
+    if not items:
+        return []
+    rendered = ["", "**Core Claims**:"]
+    for item in items:
+        evidence = ", ".join(item.evidence_ids) if item.evidence_ids else "None"
+        rendered.append(f"- [{item.support_level.value}] {item.claim} | Evidence: {evidence}")
+    return rendered
 
 
 def _render_evidence_list(items: list[EvidenceItem]) -> list[str]:
