@@ -21,6 +21,8 @@ from ..agents import (
     create_trader,
 )
 from ..agents.schemas import (
+    ClaimSupportLevel,
+    CoreClaim,
     DecisionStatus,
     EvidenceItem,
     EvidenceKind,
@@ -219,7 +221,11 @@ class AutonomousRuntime:
             confidence_rationale=f"Composite score is {combined:.1f} across {len(selected_analysts)} analyst desks with completeness {completeness:.2f}.",
             rationale=self._thesis_text(rating.value if rating else "No Recommendation"),
             primary_evidence=self.evidence_pack()[: (3 if status == DecisionStatus.ACTIONABLE else 1)],
+            core_claims=self._core_claims(status),
             key_risks=self._key_risks(),
+            counterargument=self._counterargument_text(),
+            counterargument_evidence_ids=["E1"],
+            counterargument_response=self._counterargument_response(status),
             evidence_gap=evidence_gap,
             strategic_actions=self._strategic_actions(rating.value if rating else "No Recommendation"),
         )
@@ -279,11 +285,39 @@ class AutonomousRuntime:
             executive_summary=self._strategic_actions(rating.value if rating else "No Recommendation"),
             investment_thesis=self._thesis_text(rating.value if rating else "No Recommendation"),
             primary_evidence=self.evidence_pack()[: (3 if status == DecisionStatus.ACTIONABLE else 1)],
+            core_claims=self._core_claims(status),
             key_risks=self._key_risks(),
+            counterargument=self._counterargument_text(),
+            counterargument_evidence_ids=["E1"],
+            counterargument_response=self._counterargument_response(status),
             evidence_gap=self._evidence_gap(status == DecisionStatus.NO_RECOMMENDATION),
             price_target=price_target if status == DecisionStatus.ACTIONABLE else None,
             time_horizon="1-4 weeks" if status == DecisionStatus.ACTIONABLE else None,
         )
+
+    def _core_claims(self, status: DecisionStatus) -> list[CoreClaim]:
+        evidence_count = 3 if status == DecisionStatus.ACTIONABLE else 1
+        ids = [f"E{index}" for index in range(1, evidence_count + 1)]
+        support = ClaimSupportLevel.SUPPORTED if status == DecisionStatus.ACTIONABLE else ClaimSupportLevel.WEAK
+        return [
+            CoreClaim(
+                claim=(
+                    "The primary evidence stack supports the stated recommendation only while the cited "
+                    "evidence remains current."
+                ),
+                evidence_ids=ids,
+                support_level=support,
+            )
+        ]
+
+    def _counterargument_text(self) -> str:
+        risks = self._key_risks()
+        return risks[0] if risks else "The opposing case is that the current evidence may not persist."
+
+    def _counterargument_response(self, status: DecisionStatus) -> str:
+        if status == DecisionStatus.ACTIONABLE:
+            return "The recommendation remains constrained by position discipline and the stated evidence gap."
+        return "The counterargument is not resolved strongly enough, so the report avoids an actionable recommendation."
 
     def _execution_stop_text(self) -> str:
         bundle = self.bundle()

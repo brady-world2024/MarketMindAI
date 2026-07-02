@@ -2,6 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from marketmind_ai.agents.managers.portfolio_manager import create_portfolio_manager
 from marketmind_ai.agents.managers.research_manager import create_research_manager
 from marketmind_ai.agents.schemas import (
     ClaimSupportLevel,
@@ -120,6 +121,30 @@ def _make_rm_state():
             "judge_decision": "",
             "count": 1,
         },
+    }
+
+
+def _make_pm_state():
+    return {
+        "company_of_interest": "NVDA",
+        "investment_plan": "**Recommendation Status**: Actionable\n\nCore Claims here.",
+        "trader_investment_plan": "**Action Status**: Actionable\n\nTrade plan here.",
+        "portfolio_memory_context": "",
+        "output_language": "English",
+        "risk_debate_state": {
+            "history": "Risk debate history.",
+            "aggressive_history": "",
+            "conservative_history": "",
+            "neutral_history": "",
+            "latest_speaker": "",
+            "current_aggressive_response": "",
+            "current_conservative_response": "",
+            "current_neutral_response": "",
+            "judge_decision": "",
+            "count": 1,
+        },
+        "trade_date": "2026-06-12",
+        "calibration_summary": {},
     }
 
 
@@ -452,6 +477,9 @@ class TestResearchManagerAgent(unittest.TestCase):
         self.assertIn("No Recommendation", prompt)
         self.assertIn("Confidence Rationale", prompt)
         self.assertIn("short excerpt", prompt)
+        self.assertIn("Core Claims", prompt)
+        self.assertIn("evidence ids", prompt)
+        self.assertIn("strongest counterargument", prompt)
 
     def test_prompt_includes_memory_context_when_available(self):
         captured = {}
@@ -473,6 +501,59 @@ class TestResearchManagerAgent(unittest.TestCase):
         rm = create_research_manager(llm, DummyOfflineRuntime())
         result = rm(_make_rm_state())
         self.assertEqual(result["investment_plan"], plain_response)
+
+
+class TestPortfolioManagerAgent(unittest.TestCase):
+    def test_prompt_requires_core_claims_and_counterargument_response(self):
+        captured = {}
+        decision = PortfolioDecision(
+            decision_status=DecisionStatus.ACTIONABLE,
+            rating=PortfolioRating.OVERWEIGHT,
+            confidence=76,
+            confidence_rationale="Fresh evidence supports a constructive stance.",
+            executive_summary="Scale in only while evidence stays aligned.",
+            investment_thesis="Momentum and fundamentals support a constructive stance.",
+            primary_evidence=[_evidence_item("Market Analyst"), _evidence_item("Fundamentals Analyst")],
+            core_claims=[
+                CoreClaim(
+                    claim="Momentum and fundamentals support a constructive stance.",
+                    evidence_ids=["E1", "E2"],
+                    support_level=ClaimSupportLevel.SUPPORTED,
+                )
+            ],
+            key_risks=["Valuation remains demanding."],
+            counterargument="Valuation could already price in the good news.",
+            counterargument_evidence_ids=["E2"],
+            counterargument_response="Sizing is capped because valuation risk remains.",
+            evidence_gap="Residual uncertainty remains around valuation sensitivity if growth slows.",
+            price_target=1179.46,
+            time_horizon="1-4 weeks",
+        )
+        structured = MagicMock()
+
+        def _invoke(prompt):
+            captured["prompt"] = prompt
+            return decision
+
+        structured.invoke.side_effect = _invoke
+        llm = MagicMock()
+        llm.with_structured_output.return_value = structured
+
+        def verifier_callback(_state, final_decision):
+            return final_decision, {
+                "verification": {"status": "passed", "issues": []},
+                "report_quality": {},
+                "evidence_ledger": [],
+            }
+
+        pm = create_portfolio_manager(llm, DummyOfflineRuntime(), verifier_callback)
+        pm(_make_pm_state())
+
+        prompt = captured["prompt"]
+        self.assertIn("Core Claims", prompt)
+        self.assertIn("evidence ids", prompt)
+        self.assertIn("strongest counterargument", prompt)
+        self.assertIn("counterargument response", prompt)
 
 
 if __name__ == "__main__":
