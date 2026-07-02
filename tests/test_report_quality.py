@@ -1,4 +1,4 @@
-from marketmind_ai.agents.schemas import EvidenceItem, EvidenceKind, EvidenceStrength
+from marketmind_ai.agents.schemas import ClaimSupportLevel, CoreClaim, EvidenceItem, EvidenceKind, EvidenceStrength
 from marketmind_ai.reporting import ReportQualityScorer, build_evidence_ledger
 
 
@@ -53,14 +53,26 @@ STRUCTURED_DECISION = {
             "raw_source_id": "NVDA:fundamentals:2026-06-12",
         },
     ],
+    "core_claims": [
+        {
+            "claim": "Momentum, catalyst tone, and business quality support a constructive stance.",
+            "evidence_ids": ["E1", "E2", "E3"],
+            "support_level": "supported",
+        }
+    ],
     "key_risks": [
         "Valuation is demanding.",
         "Catalyst tone can reverse if macro liquidity deteriorates.",
     ],
+    "counterargument": "Valuation can compress if AI demand expectations fade.",
+    "counterargument_evidence_ids": ["E3"],
+    "counterargument_response": "Sizing should stay disciplined because valuation risk remains material.",
     "evidence_gap": "Valuation leaves limited room for execution misses.",
     "price_target": 1179.46,
     "time_horizon": "1-4 weeks",
 }
+
+SUPPORTED_CLAIMS = STRUCTURED_DECISION["core_claims"]
 
 
 def test_evidence_item_preserves_source_provenance_fields():
@@ -120,6 +132,57 @@ def test_report_quality_score_rewards_auditable_multi_source_evidence():
     assert result["dimensions"]["source_diversity"]["score"] == 100
     assert result["dimensions"]["provenance"]["score"] == 100
     assert result["issues"] == []
+
+
+def test_report_quality_includes_claim_support_and_counterargument_dimensions():
+    decision = {
+        **STRUCTURED_DECISION,
+        "core_claims": SUPPORTED_CLAIMS,
+        "counterargument": "Valuation can compress if AI demand expectations fade.",
+        "counterargument_evidence_ids": ["E3"],
+        "counterargument_response": "Sizing should stay disciplined because valuation risk remains material.",
+    }
+
+    result = ReportQualityScorer().score(
+        final_state={
+            "trade_date": "2026-06-12",
+            "investment_plan": "**Recommendation Status**: Actionable",
+            "trader_investment_plan": "**Action Status**: Actionable\n\nStop if the breakout fails.",
+        },
+        structured_decision=decision,
+        verification={"status": "passed", "issues": []},
+    )
+
+    assert result["dimensions"]["claim_support"]["score"] == 100
+    assert result["dimensions"]["counterargument_coverage"]["score"] == 100
+    assert result["claim_audit"]["unsupported_claims"] == []
+
+
+def test_report_quality_flags_unsupported_claims_with_rewrite_suggestions():
+    decision = {
+        **STRUCTURED_DECISION,
+        "core_claims": [
+            CoreClaim(
+                claim="Margins are guaranteed to expand.",
+                evidence_ids=["E9"],
+                support_level=ClaimSupportLevel.SUPPORTED,
+            ).model_dump(mode="json")
+        ],
+        "counterargument": "Valuation can compress if AI demand expectations fade.",
+        "counterargument_evidence_ids": ["E3"],
+        "counterargument_response": "Sizing should stay disciplined because valuation risk remains material.",
+    }
+
+    result = ReportQualityScorer().score(
+        final_state={"trade_date": "2026-06-12"},
+        structured_decision=decision,
+        verification={"status": "passed", "issues": []},
+    )
+
+    issue_codes = {issue["code"] for issue in result["issues"]}
+    assert result["dimensions"]["claim_support"]["score"] < 50
+    assert "unsupported_core_claim" in issue_codes
+    assert result["claim_audit"]["rewrite_suggestions"]
 
 
 def test_report_quality_score_rewards_well_calibrated_confidence_bucket():
