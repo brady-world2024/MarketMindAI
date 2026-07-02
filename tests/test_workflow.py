@@ -35,6 +35,12 @@ class MarketMindGraphTests(unittest.TestCase):
             final_payload = final_snapshot.to_dict()
             self.assertGreaterEqual(final_payload["report_quality"]["score"], 60)
             self.assertTrue(final_payload["evidence_ledger"])
+            for evidence in final_payload["evidence_ledger"]:
+                self.assertTrue(evidence["provider"])
+                self.assertTrue(evidence["url"])
+                self.assertTrue(evidence["source_type"])
+                self.assertTrue(evidence["retrieved_at"])
+                self.assertTrue(evidence["raw_source_id"])
             self.assertTrue(final_snapshot.tool_calls)
             self.assertTrue(any(report.key == "final_trade_decision" and report.content for report in final_snapshot.reports))
             self.assertIsNotNone(workflow.archive.load("testrun123"))

@@ -53,6 +53,11 @@ STRUCTURED_DECISION = {
             "excerpt": "Close=1092.09, RSI=68.8",
             "interpretation": "Price action supports timing.",
             "strength": "High",
+            "provider": "offline-fixtures",
+            "url": "marketmind://offline/NVDA/prices/2026-06-12",
+            "source_type": "price",
+            "retrieved_at": "2026-06-12T00:00:00Z",
+            "raw_source_id": "NVDA:price:2026-06-12",
         }
     ],
     "key_risks": ["Valuation is demanding."],
@@ -86,8 +91,11 @@ EVIDENCE_LEDGER = [
         "strength": "High",
         "freshness": "current",
         "supports": "rating",
-        "provider": "",
-        "url": "",
+        "provider": "offline-fixtures",
+        "url": "marketmind://offline/NVDA/prices/2026-06-12",
+        "source_type": "price",
+        "retrieved_at": "2026-06-12T00:00:00Z",
+        "raw_source_id": "NVDA:price:2026-06-12",
     }
 ]
 
@@ -143,3 +151,6 @@ def test_report_export_renders_structured_quality_and_evidence_sections():
     assert "Evidence Ledger" in html
     assert "E1" in html
     assert "Momentum remains constructive." in html
+    assert "offline-fixtures" in html
+    assert "price" in html
+    assert "marketmind://offline/NVDA/prices/2026-06-12" in html
