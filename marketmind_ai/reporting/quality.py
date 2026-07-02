@@ -4,6 +4,8 @@ import re
 from datetime import datetime
 from typing import Any, Mapping
 
+from .claim_audit import ClaimEvidenceAuditor
+
 
 _CONFIDENCE_BUCKETS = (
     (0, 39, "0-39"),
@@ -61,6 +63,7 @@ class ReportQualityScorer:
         decision = _as_mapping(structured_decision)
         analysis_date = _text(final_state.get("trade_date"))
         ledger = build_evidence_ledger(decision, analysis_date=analysis_date)
+        claim_audit = ClaimEvidenceAuditor().audit(decision, ledger)
         dimensions = {
             "evidence_count": self._evidence_count(ledger),
             "fact_coverage": self._fact_coverage(ledger),
@@ -69,13 +72,21 @@ class ReportQualityScorer:
             "data_freshness": self._data_freshness(ledger),
             "risk_balance": self._risk_balance(decision),
             "verification": self._verification(verification or {}),
+            "claim_support": self._claim_support(claim_audit),
+            "counterargument_coverage": self._counterargument_coverage(claim_audit),
         }
         if calibration_summary is not None:
             dimensions["confidence_calibration"] = self._confidence_calibration(decision, calibration_summary)
 
         weights = self._weights(include_calibration=calibration_summary is not None)
         total = round(sum(dimensions[key]["score"] * weights[key] for key in dimensions))
-        issues = self._issues(ledger, decision, verification or {}, dimensions.get("confidence_calibration"))
+        issues = self._issues(
+            ledger,
+            decision,
+            verification or {},
+            dimensions.get("confidence_calibration"),
+            claim_audit,
+        )
         grade = "Strong" if total >= 80 else "Adequate" if total >= 60 else "Weak"
         return {
             "score": int(total),
@@ -83,6 +94,7 @@ class ReportQualityScorer:
             "summary": self._summary(grade, total),
             "dimensions": dimensions,
             "issues": issues,
+            "claim_audit": claim_audit,
         }
 
     @staticmethod
@@ -191,23 +203,51 @@ class ReportQualityScorer:
     def _weights(*, include_calibration: bool) -> dict[str, float]:
         if include_calibration:
             return {
-                "evidence_count": 0.16,
-                "fact_coverage": 0.13,
-                "source_diversity": 0.12,
-                "provenance": 0.08,
-                "data_freshness": 0.16,
-                "risk_balance": 0.13,
-                "verification": 0.12,
-                "confidence_calibration": 0.10,
+                "evidence_count": 0.13,
+                "fact_coverage": 0.09,
+                "source_diversity": 0.09,
+                "provenance": 0.07,
+                "data_freshness": 0.14,
+                "risk_balance": 0.09,
+                "verification": 0.09,
+                "claim_support": 0.15,
+                "counterargument_coverage": 0.07,
+                "confidence_calibration": 0.08,
             }
         return {
-            "evidence_count": 0.18,
-            "fact_coverage": 0.14,
-            "source_diversity": 0.14,
-            "provenance": 0.08,
-            "data_freshness": 0.18,
-            "risk_balance": 0.14,
-            "verification": 0.14,
+            "evidence_count": 0.14,
+            "fact_coverage": 0.10,
+            "source_diversity": 0.10,
+            "provenance": 0.07,
+            "data_freshness": 0.15,
+            "risk_balance": 0.10,
+            "verification": 0.10,
+            "claim_support": 0.16,
+            "counterargument_coverage": 0.08,
+        }
+
+    @staticmethod
+    def _claim_support(claim_audit: Mapping[str, Any]) -> dict[str, Any]:
+        unsupported = len(claim_audit.get("unsupported_claims") or [])
+        weak = len(claim_audit.get("weakly_supported_claims") or [])
+        supported = len(claim_audit.get("supported_claims") or [])
+        return {
+            "score": int(claim_audit.get("claim_support_score", 0)),
+            "label": "Claim Support",
+            "detail": f"{supported} supported, {weak} weak, {unsupported} unsupported core claims",
+        }
+
+    @staticmethod
+    def _counterargument_coverage(claim_audit: Mapping[str, Any]) -> dict[str, Any]:
+        missing = claim_audit.get("missing_counterarguments") or []
+        if missing:
+            detail = f"Missing counterargument coverage: {', '.join(missing)}"
+        else:
+            detail = "Counterargument and response are present for actionable report."
+        return {
+            "score": int(claim_audit.get("counterargument_score", 0)),
+            "label": "Counterargument Coverage",
+            "detail": detail,
         }
 
     @staticmethod
@@ -266,6 +306,7 @@ class ReportQualityScorer:
         decision: Mapping[str, Any],
         verification: Mapping[str, Any],
         calibration: Mapping[str, Any] | None = None,
+        claim_audit: Mapping[str, Any] | None = None,
     ) -> list[dict[str, str]]:
         issues: list[dict[str, str]] = []
         if len(ledger) < 2:
@@ -336,6 +377,8 @@ class ReportQualityScorer:
                         "message": "This confidence bucket has weak historical hit rate or alpha performance.",
                     }
                 )
+        if claim_audit:
+            issues.extend(claim_audit.get("issues") or [])
         return issues
 
     @staticmethod
