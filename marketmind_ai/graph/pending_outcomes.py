@@ -30,6 +30,7 @@ class PendingOutcomeResolver:
             )
             updates.append(
                 {
+                    "run_id": entry.get("run_id"),
                     "ticker": ticker,
                     "trade_date": entry.get("date", ""),
                     "raw_return": raw_return,

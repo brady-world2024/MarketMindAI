@@ -447,6 +447,7 @@ class GraphResearchEngine:
             output_language=self.request.output_language,
             selected_analysts=[self._runtime_key(item) for item in self.request.analysts],
             symbol_resolution=self.resolution,
+            human_feedback=self.request.human_feedback,
             research_memory_context=self.runtime.memory_context("research"),
             trader_memory_context=self.runtime.memory_context("trader"),
             portfolio_memory_context=self.runtime.memory_context("portfolio"),

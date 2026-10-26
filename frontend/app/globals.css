@@ -373,6 +373,8 @@ select:focus {
   gap: 22px;
 }
 
+.layout > *, .dashboardGrid > * { min-width: 0; }
+
 .statusPanel {
   display: grid;
   gap: 6px;
@@ -546,6 +548,47 @@ select:focus {
   background: rgba(255, 250, 244, 0.9);
 }
 
+.reviewPanel { min-width: 0; display: grid; gap: 18px; }
+.reviewPanel .sectionHeader { margin-bottom: 0; align-items: center; }
+.reviewBadge { max-width: 100%; overflow-wrap: anywhere; padding: 8px 12px; border-radius: 8px; font-weight: 700; background: rgba(201, 131, 42, .14); color: #805014; }
+.reviewBadge.approved { background: rgba(63, 101, 88, .14); color: var(--sage); }
+.reviewBadge.rejected { background: rgba(169, 57, 57, .12); color: var(--danger); }
+.reviewBadge.changes_requested { background: rgba(180, 75, 48, .12); color: var(--accent-strong); }
+.reviewQueue { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; }
+.reviewReceipt { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 0; border-block: 1px solid var(--line); }
+.reviewReceipt strong { color: var(--sage); }
+.reviewReceipt code { margin-left: auto; color: var(--muted); font-size: .82rem; overflow-wrap: anywhere; }
+.reviewDetails { border-top: 1px solid var(--line); padding-top: 14px; min-width: 0; }
+.reviewDetails summary { cursor: pointer; font-weight: 700; margin-bottom: 12px; }
+.reviewDetails p, .reviewDetails li { line-height: 1.6; overflow-wrap: anywhere; }
+.reviewTableWrap { overflow-x: auto; }
+.reviewTable { width: 100%; border-collapse: collapse; font-size: .88rem; }
+.reviewTable caption { text-align: left; color: var(--muted); padding: 12px 0; }
+.reviewTable th, .reviewTable td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; min-width: 130px; overflow-wrap: anywhere; }
+.reviewTable td p { margin: 6px 0 0; }
+.reviewTable td small { display: block; max-width: 200px; }
+.reviewTable a { color: var(--sage); }
+.reviewForm { border: 0; padding: 0; margin: 0; display: grid; gap: 16px; min-width: 0; }
+.reviewForm legend { font-weight: 700; margin-bottom: 14px; }
+.reviewForm small, .reviewAudit small { color: var(--muted); }
+.reviewForm textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; color: var(--ink); background: rgba(255, 252, 247, .94); }
+.reviewForm textarea:focus-visible, .reviewPanel button:focus-visible, .reviewDetails summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.reviewActions { display: flex; flex-wrap: wrap; gap: 10px; }
+.reviewReject { background: rgba(169, 57, 57, .1); color: var(--danger); }
+.reviewPanel button:disabled { cursor: not-allowed; opacity: .55; }
+.reviewTextButton { width: fit-content; border: 0; background: none; padding: 6px 0; text-decoration: underline; color: var(--sage); cursor: pointer; font: inherit; }
+.reviewFeedback { background: rgba(201, 131, 42, .1); padding: 16px; border-left: 3px solid var(--gold); }
+.reviewFeedback p, .reviewAudit p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.reviewAudit { padding: 14px 0; }
+.reviewAudit small { display: block; margin-top: 6px; }
+
+@media (max-width: 820px) {
+  .reviewQueue { grid-template-columns: 1fr; }
+  .reviewPanel .sectionHeader { flex-wrap: wrap; }
+  .reviewReceipt code { margin-left: 0; }
+  .reviewActions > button { flex: 1 1 180px; }
+}
+
 .emptyState {
   color: var(--muted);
 }
@@ -554,7 +597,7 @@ select:focus {
   .hero,
   .layout,
   .dashboardGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .controlPanel {
@@ -568,7 +611,7 @@ select:focus {
 
 @media (max-width: 820px) {
   .shell {
-    width: min(100% - 18px, 100%);
+    width: calc(100% - 18px);
     margin: 12px auto 24px;
   }
 
@@ -590,4 +633,6 @@ select:focus {
   .inlineField {
     grid-template-columns: 1fr;
   }
+
+  .statusPanel .sectionHeader { flex-wrap: wrap; align-items: flex-start; }
 }

@@ -232,6 +232,9 @@ def get_fallback_vendors(method: str) -> List[str]:
     category = get_category_for_method(method)
     ordered = [value.strip() for value in get_vendor(category, method).split(",") if value.strip()]
     supported = set(VENDOR_METHODS.get(method, {}))
+    # Offline is an explicit local-only choice, including aggregate searches.
+    if ordered == ["offline"]:
+        return ["offline"] if "offline" in supported else []
     vendors: List[str] = []
     for vendor in ordered:
         if vendor in supported and vendor not in vendors:

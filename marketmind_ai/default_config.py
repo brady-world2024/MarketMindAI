@@ -36,6 +36,7 @@ def build_default_config(storage_root: str | Path | None = None, overrides: dict
             "memory_dir": str(root / "memory"),
             "memory_file": str(root / "memory" / "decisions.jsonl"),
             "memory_log_path": str(root / "memory" / "marketmind_memory.md"),
+            "review_db_path": str(root / "reviews.sqlite3"),
             "evaluation_dir": str(root / "evaluation"),
             "evaluation_summary_path": str(root / "evaluation" / "decision_evaluation.json"),
             "checkpoints_dir": str(root / "checkpoints"),

@@ -135,6 +135,44 @@ def _evidence_ledger_section(ledger: list[dict[str, Any]]) -> str:
     )
 
 
+def _review_section(snapshot: dict[str, Any]) -> str:
+    review = snapshot.get("review") or {}
+    labels = {
+        "pending": "Awaiting human review",
+        "approved": "Approved by human reviewer",
+        "rejected": "Rejected by human reviewer",
+        "changes_requested": "Changes requested — awaiting a revised report",
+    }
+    label = labels.get(review.get("status"), "No human review recorded")
+    metadata = "".join(
+        _meta_row(name, value)
+        for name, value in (
+            ("Review status", label),
+            ("Report version", review.get("version")),
+            ("Report fingerprint", review.get("report_hash")),
+            ("Review requested", review.get("requested_at")),
+            ("Previous run", review.get("parent_run_id")),
+            ("Revised run", review.get("revision_run_id")),
+        ) if value is not None
+    )
+    history = "".join(
+        _pre_section(
+            f"{item.get('decision', '').replace('_', ' ').title()} · {item.get('reviewer', '')}",
+            f"{item.get('reviewed_at', '')} · Version {item.get('version', '')}\n{item.get('comment', '')}",
+        )
+        for item in review.get("history", [])
+    )
+    return (
+        '<section class="report-section human-review-section">'
+        f"<h2>{escape(label)}</h2>"
+        f'<div class="meta-grid">{metadata}</div>'
+        "<p>Reviewer names are self-reported in this local application. "
+        "Approval records acceptance of this report version and does not change its automated validation result. "
+        "Human approval does not guarantee factual correctness.</p>"
+        f"{history}</section>"
+    )
+
+
 def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str:
     ticker = snapshot.get("ticker") or snapshot.get("original_input") or "Unknown"
     company_name = snapshot.get("company_name") or ""
@@ -557,6 +595,7 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
         </div>
       </section>
       <section class="sections">
+        {_review_section(snapshot)}
         {structured_sections}
         {report_sections}
         {appendix_sections}

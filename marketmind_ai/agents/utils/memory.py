@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import json
+import sqlite3
 from typing import Any, List
 
 from ...pathing import safe_ticker_component
@@ -16,6 +18,7 @@ class MarketMindMemoryLog:
         cfg = config or {}
         raw_path = cfg.get("memory_log_path")
         self._log_path = Path(raw_path).expanduser() if raw_path else None
+        self._review_db_path = Path(cfg["review_db_path"]) if cfg.get("review_db_path") else None
         self._max_entries = int(cfg.get("memory_log_max_entries", 0) or 0)
         if self._log_path is not None:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,16 +41,34 @@ class MarketMindMemoryLog:
             handle.write(entry)
 
     def load_entries(self) -> List[dict[str, Any]]:
-        if self._log_path is None or not self._log_path.exists():
-            return []
-        raw = self._log_path.read_text(encoding="utf-8")
+        raw = self._log_path.read_text(encoding="utf-8") if self._log_path is not None and self._log_path.exists() else ""
         blocks = [block.strip() for block in raw.split(self._SEPARATOR) if block.strip()]
         entries: List[dict[str, Any]] = []
         for block in blocks:
             parsed = self._parse_entry(block)
             if parsed is not None:
                 entries.append(parsed)
+        entries.extend(self._approved_records("entry"))
         return entries
+
+    def _approved_records(self, column: str) -> list[dict]:
+        if self._review_db_path is None or not self._review_db_path.exists():
+            return []
+        if column not in {"entry", "state"}:
+            raise ValueError("Unsupported memory column")
+        with sqlite3.connect(self._review_db_path) as db:
+            rows = db.execute(f"SELECT run_id,{column} FROM approved_memories ORDER BY rowid").fetchall()
+        records = []
+        for run_id, raw in rows:
+            record = json.loads(raw)
+            if column == "entry":
+                # The table identity also upgrades records written before run_id was in the JSON.
+                record["run_id"] = run_id
+            records.append(record)
+        return records
+
+    def approved_states(self) -> list[dict]:
+        return self._approved_records("state")
 
     def get_pending_entries(self) -> List[dict[str, Any]]:
         return [entry for entry in self.load_entries() if entry.get("pending")]
@@ -85,10 +106,13 @@ class MarketMindMemoryLog:
         alpha_return: float,
         holding_days: int,
         reflection: str,
+        *,
+        run_id: str | None = None,
     ) -> None:
         self.batch_update_with_outcomes(
             [
                 {
+                    "run_id": run_id,
                     "ticker": ticker,
                     "trade_date": trade_date,
                     "raw_return": raw_return,
@@ -100,13 +124,27 @@ class MarketMindMemoryLog:
         )
 
     def batch_update_with_outcomes(self, updates: List[dict[str, Any]]) -> None:
-        if self._log_path is None or not self._log_path.exists() or not updates:
+        if not updates:
+            return
+        if self._review_db_path is not None and self._review_db_path.exists():
+            run_updates = {str(item["run_id"]): item for item in updates if item.get("run_id")}
+            with sqlite3.connect(self._review_db_path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                for run_id, raw_entry in db.execute("SELECT run_id,entry FROM approved_memories").fetchall():
+                    entry = json.loads(raw_entry)
+                    update = run_updates.get(run_id)
+                    if update and entry["pending"]:
+                        entry.update(pending=False, raw=f"{update['raw_return']:+.1%}",
+                                     alpha=f"{update['alpha_return']:+.1%}", holding_days=f"{int(update['holding_days'])}d",
+                                     reflection=str(update.get("reflection", "")).strip())
+                        db.execute("UPDATE approved_memories SET entry=? WHERE run_id=?", (json.dumps(entry), run_id))
+        if self._log_path is None or not self._log_path.exists():
             return
         raw = self._log_path.read_text(encoding="utf-8")
         blocks = raw.split(self._SEPARATOR)
         update_map = {
             (str(item["trade_date"]), safe_ticker_component(item["ticker"])): item
-            for item in updates
+            for item in updates if not item.get("run_id")
         }
         changed = False
         new_blocks: list[str] = []

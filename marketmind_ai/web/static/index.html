@@ -193,8 +193,33 @@
               <button class="ghost" id="exportPdfBtn" type="button" disabled>Export PDF</button>
             </div>
           </div>
+          <section class="human-review" aria-labelledby="reviewTitle">
+            <div class="panel-heading"><h3 id="reviewTitle">Human review</h3><span id="reviewBadge" class="pill">No report selected</span></div>
+            <div class="review-queue"><label><span>Recent reports</span><select id="reviewQueue"><option value="">Choose a saved report</option></select></label>
+              <button class="ghost" type="button" id="refreshReviewsBtn">Refresh reports</button></div>
+            <p id="reviewDescription">Complete a research run or choose a saved report. Drafts stay available after you close the page.</p>
+            <p id="reviewVersion" class="review-version"></p>
+            <p id="revisionFeedback" class="review-feedback" hidden></p>
+            <div id="reviewLinks"></div>
+            <details id="reviewEvidence" hidden open><summary>Validation and evidence</summary><div id="reviewEvidenceBody"></div></details>
+            <fieldset id="reviewForm" hidden>
+              <legend>Review this version</legend>
+              <label><span>Reviewer name</span><input id="reviewerName" maxlength="120" autocomplete="name" /><small>Self-reported name for this local review record.</small></label>
+              <label><span>Review comments</span><textarea id="reviewComment" rows="3" maxlength="4000" placeholder="Explain concerns, missing evidence, or requested changes."></textarea><small>Required when rejecting a report or requesting changes.</small></label>
+              <p>Approval accepts this report version. It preserves automated validation limits and does not place a trade. Human approval does not guarantee factual correctness.</p>
+              <div class="actions"><button class="primary" id="approveReportBtn" type="button">Approve report</button>
+                <button class="ghost" id="requestChangesBtn" type="button">Request changes</button>
+                <button class="ghost review-reject" id="rejectReportBtn" type="button">Reject report</button></div>
+            </fieldset>
+            <div id="revisionForm" hidden><p id="revisionDescription">A new analysis will use the original settings and feedback, and will need a new review.</p>
+              <label id="revisionKeyLabel"><span id="revisionKeyTitle">API key for the original provider</span><input id="revisionApiKey" type="password" autocomplete="off" /></label>
+              <button class="primary" id="reviseReportBtn" type="button">Generate revised report</button>
+            </div>
+            <details id="reviewHistory" hidden open><summary>Review history</summary><div id="reviewHistoryBody"></div></details>
+            <p id="reviewError" role="alert" hidden></p>
+          </section>
           <div class="decision-card">
-            <span class="decision-label">Final Signal</span>
+            <span class="decision-label" id="decisionLabel">Decision draft</span>
             <strong id="finalSignal">Pending</strong>
             <p id="finalSummary">No completed run yet.</p>
           </div>
@@ -203,5 +228,6 @@
       </main>
     </div>
     <script src="/static/app.js"></script>
+    <script src="/static/human-review.js"></script>
   </body>
 </html>

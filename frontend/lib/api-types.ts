@@ -98,7 +98,45 @@ export type RunSnapshot = {
   reports: ReportSection[];
   final_signal?: string | null;
   final_decision?: string | null;
+  final_structured_decision?: {
+    decision_status?: string;
+    key_risks?: string[];
+    evidence_gap?: string;
+    counterargument?: string;
+    counterargument_response?: string;
+  } | null;
+  report_verification?: { status?: string; blocks_actionable_recommendation?: boolean; issues?: ReviewIssue[] } | null;
+  report_quality?: { score?: number; grade?: string; summary?: string; issues?: ReviewIssue[] } | null;
+  evidence_ledger?: EvidenceRow[];
+  review?: HumanReview | null;
   error?: string | null;
+};
+
+export type ReviewIssue = { code?: string; message?: string; severity?: string };
+
+export type EvidenceRow = {
+  evidence_id?: string; claim?: string; source?: string; source_date?: string;
+  excerpt?: string; interpretation?: string; freshness?: string; url?: string; provider?: string;
+};
+
+export type ReviewDecision = "approve" | "reject" | "request_changes";
+
+export type HumanReview = {
+  status: "pending" | "approved" | "rejected" | "changes_requested";
+  version: number;
+  report_hash: string;
+  requested_at: string;
+  parent_run_id?: string | null;
+  revision_run_id?: string | null;
+  feedback?: string;
+  history: {
+    decision: ReviewDecision; reviewer: string; comment: string; reviewed_at: string;
+    version: number; report_hash: string;
+  }[];
+};
+
+export type ReviewSummary = {
+  run_id: string; ticker: string; analysis_date: string; review: HumanReview;
 };
 
 export type RunCreatedResponse = {

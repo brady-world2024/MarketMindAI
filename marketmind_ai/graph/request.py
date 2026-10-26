@@ -24,6 +24,7 @@ class AnalysisRequest:
     anthropic_effort: str = ""
     storage_root: str = ""
     checkpoint_enabled: bool = False
+    human_feedback: str = ""
 
     @classmethod
     def from_mapping(cls, payload: Dict[str, Any]) -> "AnalysisRequest":
@@ -62,16 +63,17 @@ class AnalysisRequest:
             ticker=ticker,
             analysis_date=parsed.isoformat(),
             llm_provider=llm_provider,
-            api_key=str(payload.get("api_key", "")).strip(),
+            api_key=str(payload.get("api_key") or "").strip(),
             quick_model=quick_model,
             deep_model=deep_model,
             analysts=analysts,
             output_language=output_language,
             research_depth=research_depth,
-            base_url=str(payload.get("base_url", "")).strip(),
-            google_thinking_level=str(payload.get("google_thinking_level", "")).strip(),
-            openai_reasoning_effort=str(payload.get("openai_reasoning_effort", "")).strip(),
-            anthropic_effort=str(payload.get("anthropic_effort", "")).strip(),
-            storage_root=str(payload.get("storage_root", "")).strip(),
+            base_url=str(payload.get("base_url") or "").strip(),
+            google_thinking_level=str(payload.get("google_thinking_level") or "").strip(),
+            openai_reasoning_effort=str(payload.get("openai_reasoning_effort") or "").strip(),
+            anthropic_effort=str(payload.get("anthropic_effort") or "").strip(),
+            storage_root=str(payload.get("storage_root") or "").strip(),
             checkpoint_enabled=bool(payload.get("checkpoint_enabled", False)),
+            human_feedback=str(payload.get("human_feedback") or "").strip(),
         )
