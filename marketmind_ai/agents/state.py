@@ -29,6 +29,7 @@ class RiskDebateState(TypedDict):
 
 
 class MarketMindState(MessagesState):
+    human_feedback: Annotated[str, "Human revision feedback to consider under existing evidence rules"]
     company_of_interest: Annotated[str, "Resolved ticker to analyze"]
     original_query: Annotated[str, "Original user query"]
     company_name: Annotated[str, "Resolved company name"]

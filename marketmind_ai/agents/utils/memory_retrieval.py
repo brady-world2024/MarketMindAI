@@ -157,14 +157,19 @@ class MarketMindMemoryRetriever:
 
     def _collect_report_snippets(self, ticker: str, trade_date: str) -> list[MemorySnippet]:
         report_dir = self.results_dir / safe_ticker_component(ticker) / "MarketMindStrategy_logs"
-        if not report_dir.exists():
-            return []
         snippets: list[MemorySnippet] = []
+        records = [("approved_review", state) for state in self.memory_log.approved_states()
+                   if safe_ticker_component(str(state.get("company_of_interest") or "")) == ticker]
         for path in sorted(report_dir.glob("full_states_log_*.json"), reverse=True):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
+            # Legacy unmarked logs remain readable; reviewed drafts are never memory.
+            if payload.get("review_status") and payload["review_status"] != "approved":
+                continue
+            records.append((str(path), payload))
+        for source, payload in records:
             report_date = str(payload.get("trade_date", "") or payload.get("analysis_date", ""))
             if not self._is_before(report_date, trade_date):
                 continue
@@ -189,7 +194,7 @@ class MarketMindMemoryRetriever:
                         kind="report",
                         section=section,
                         same_ticker=True,
-                        source=str(path),
+                        source=source,
                     )
                 )
         return snippets

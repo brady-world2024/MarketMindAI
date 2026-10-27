@@ -97,6 +97,7 @@ class RunSnapshot:
     final_structured_decision: Optional[dict] = None
     report_quality: Optional[dict] = None
     evidence_ledger: List[dict] = field(default_factory=list)
+    review: Optional[dict] = None
     error: Optional[str] = None
 
     @classmethod

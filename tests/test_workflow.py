@@ -50,6 +50,10 @@ class MarketMindGraphTests(unittest.TestCase):
             self.assertTrue(final_snapshot.tool_calls)
             self.assertTrue(any(report.key == "final_trade_decision" and report.content for report in final_snapshot.reports))
             self.assertIsNotNone(workflow.archive.load("testrun123"))
+            self.assertEqual(workflow.journal.recall("NVDA"), [])
+            self.assertEqual(final_payload["review"]["status"], "pending")
+            workflow.reviews.decide("testrun123", decision="approve", reviewer="Test reviewer", comment="",
+                                    version=final_payload["review"]["version"], report_hash=final_payload["review"]["report_hash"])
             self.assertTrue(workflow.journal.recall("NVDA"))
 
 

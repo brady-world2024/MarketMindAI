@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..config import DEFAULT_ANALYSTS, normalize_analyst_key, provider_catalog
 from ..symbols import SymbolCandidate, SymbolResolution
@@ -44,6 +44,7 @@ class AnalysisRequest(BaseModel):
     openai_reasoning_effort: Optional[str] = None
     anthropic_effort: Optional[str] = None
     checkpoint_enabled: bool = False
+    human_feedback: str = ""
 
     @field_validator("ticker")
     @classmethod
@@ -227,8 +228,33 @@ class RunSnapshot(BaseModel):
     final_structured_decision: Optional[dict] = None
     report_quality: Optional[dict] = None
     evidence_ledger: list[dict] = Field(default_factory=list)
+    review: Optional[dict] = None
     error: Optional[str] = None
 
 
 def provider_values() -> set[str]:
     return {option.value for option in provider_catalog()}
+
+
+class ReviewRequest(BaseModel):
+    decision: Literal["approve", "reject", "request_changes"]
+    version: int = Field(ge=1, strict=True)
+    report_hash: str = Field(min_length=1)
+    reviewer: str = Field(min_length=1, max_length=200)
+    comment: str = Field(default="", max_length=10000)
+
+    @model_validator(mode="after")
+    def validate_review(self):
+        self.reviewer = self.reviewer.strip()
+        self.comment = self.comment.strip()
+        if not self.reviewer:
+            raise ValueError("reviewer is required")
+        if self.decision != "approve" and not self.comment:
+            raise ValueError("comment is required for rejection or changes")
+        return self
+
+
+class ReviseRequest(BaseModel):
+    version: int = Field(ge=1, strict=True)
+    report_hash: str = Field(min_length=1)
+    api_key: Optional[str] = None

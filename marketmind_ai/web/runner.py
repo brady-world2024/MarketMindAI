@@ -7,6 +7,7 @@ from typing import Any
 from .catalog import supported_provider_values
 from .models import AnalysisRequest, RunSnapshot
 from ..graph import MarketMindGraph
+from ..graph.marketmind_graph import build_offline_data_vendor_config
 from ..graph.request import AnalysisRequest as CoreAnalysisRequest
 
 
@@ -17,7 +18,7 @@ def iso_now() -> str:
 def build_graph_config(request: AnalysisRequest) -> dict[str, Any]:
     if request.llm_provider not in supported_provider_values():
         raise ValueError(f"Unsupported provider for the web UI: {request.llm_provider}")
-    return {
+    config = {
         "llm_provider": request.llm_provider,
         "api_key": request.api_key,
         "quick_think_llm": request.quick_model,
@@ -31,6 +32,9 @@ def build_graph_config(request: AnalysisRequest) -> dict[str, Any]:
         "openai_reasoning_effort": request.openai_reasoning_effort,
         "anthropic_effort": request.anthropic_effort,
     }
+    if request.llm_provider.lower() == "offline":
+        config["data_vendors"] = build_offline_data_vendor_config()
+    return config
 
 
 def to_core_request(request: AnalysisRequest) -> CoreAnalysisRequest:

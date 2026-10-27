@@ -154,3 +154,40 @@ def test_report_export_renders_structured_quality_and_evidence_sections():
     assert "offline-fixtures" in html
     assert "price" in html
     assert "marketmind://offline/NVDA/prices/2026-06-12" in html
+
+
+def test_export_marks_pending_report_and_preserves_version_and_review_context():
+    html = render_report_html({
+        "ticker": "NVDA", "status": "completed", "final_decision": "No Recommendation",
+        "review": {
+            "status": "pending", "version": 2, "report_hash": "abc123",
+            "requested_at": "2026-10-25T00:00:00Z", "history": [],
+            "parent_run_id": "original-run",
+        },
+    })
+    assert "Awaiting human review" in html
+    assert "Report version" in html
+    assert "abc123" in html
+    assert "original-run" in html
+
+
+def test_export_shows_approval_and_escapes_reviewer_feedback():
+    html = render_report_html({
+        "ticker": "NVDA", "status": "completed", "final_decision": "No Recommendation",
+        "review": {
+            "status": "approved", "version": 1, "report_hash": "abc123",
+            "history": [{"decision": "approve", "reviewer": "Brady <admin>",
+                         "comment": "<script>alert(1)</script>",
+                         "reviewed_at": "2026-10-25T00:00:00Z", "version": 1,
+                         "report_hash": "abc123"}],
+        },
+    })
+    assert "Approved by human reviewer" in html
+    assert "Brady &lt;admin&gt;" in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "<script>alert(1)</script>" not in html
+
+
+def test_legacy_export_does_not_imply_human_approval():
+    html = render_report_html({"ticker": "NVDA", "status": "completed"})
+    assert "No human review recorded" in html

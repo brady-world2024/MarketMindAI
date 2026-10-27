@@ -16,7 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from ..graph import MarketMindGraph
 from ..symbols import SymbolResolution
 from .catalog import build_provider_catalog
-from .models import AnalysisRequest, RunCreatedResponse, ValidateKeyRequest, ValidateKeyResponse
+from .models import AnalysisRequest, RunCreatedResponse, ValidateKeyRequest, ValidateKeyResponse, ReviewRequest, ReviseRequest
+from ..graph.review import ReviewConflict
 from .report_export import render_report_html
 from .runner import resolve_request_symbol, to_core_request
 from .symbols_router import router as symbols_router
@@ -80,11 +81,15 @@ class RunRegistry:
         self._lock = threading.Lock()
 
     def create(self) -> RunSession:
-        run_id = uuid.uuid4().hex[:12]
-        session = RunSession(run_id)
+        return self.claim(uuid.uuid4().hex[:12])[0]
+
+    def claim(self, run_id: str, *, retry_finished: bool = False) -> tuple[RunSession, bool]:
         with self._lock:
+            if run_id in self._sessions and not (retry_finished and self._sessions[run_id]._done):
+                return self._sessions[run_id], False
+            session = RunSession(run_id)
             self._sessions[run_id] = session
-        return session
+            return session, True
 
     def get(self, run_id: str) -> RunSession | None:
         with self._lock:
@@ -109,6 +114,9 @@ def _load_persisted_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str
 
 
 def _resolve_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str, Any] | None:
+    durable = workflow.reviews.load(run_id)
+    if durable is not None:
+        return durable
     session = RUNS.get(run_id)
     if session is not None and session.latest_snapshot is not None:
         return session.latest_snapshot
@@ -258,6 +266,53 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             ticker_resolution=resolved,
         )
 
+    @app.get("/reviews")
+    @app.get("/api/reviews")
+    def list_reviews() -> JSONResponse:
+        return JSONResponse(get_workflow().reviews.list_reviews())
+
+    @app.post("/runs/{run_id}/review")
+    @app.post("/api/runs/{run_id}/review")
+    def review_run(run_id: str, request: ReviewRequest) -> JSONResponse:
+        try:
+            snapshot = get_workflow().reviews.decide(run_id, **request.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ReviewConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return JSONResponse(snapshot)
+
+    @app.post("/runs/{run_id}/revise", response_model=RunCreatedResponse)
+    @app.post("/api/runs/{run_id}/revise", response_model=RunCreatedResponse)
+    def revise_run(run_id: str, request: ReviseRequest) -> RunCreatedResponse:
+        current_workflow = get_workflow()
+        try:
+            child_id, payload = current_workflow.reviews.reserve_revision(
+                run_id, version=request.version, report_hash=request.report_hash)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ReviewConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        child_request = AnalysisRequest.model_validate({**payload, "api_key": request.api_key})
+        resolved = resolve_request_symbol(child_request, current_workflow)
+        if resolved.status != "RESOLVED":
+            raise HTTPException(status_code=422, detail=_resolution_http_detail(resolved))
+        previous = current_workflow.archive.load(child_id)
+        if previous is None or previous.get("status") == "error":
+            session, claimed = RUNS.claim(child_id, retry_finished=previous is not None)
+            if claimed:
+                worker = AnalysisThread(target=_run_analysis_thread,
+                                        args=(session, current_workflow, child_request, resolved), daemon=True)
+                try:
+                    worker.start()
+                except Exception:
+                    with RUNS._lock:
+                        RUNS._sessions.pop(child_id, None)
+                    raise
+        return RunCreatedResponse(run_id=child_id, stream_url=f"/runs/{child_id}/stream",
+                                  result_url=f"/runs/{child_id}/result", report_url=f"/runs/{child_id}/report",
+                                  ticker_resolution=resolved)
+
     @app.get("/runs/{run_id}")
     @app.get("/api/runs/{run_id}")
     def get_run_snapshot(run_id: str) -> JSONResponse:
@@ -291,8 +346,9 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.get("/api/runs/{run_id}/stream")
     def stream_run_events(run_id: str) -> StreamingResponse:
         session = RUNS.get(run_id)
-        if session is None:
-            persisted = _load_persisted_snapshot(get_workflow(), run_id)
+        durable = get_workflow().reviews.load(run_id)
+        if session is None or durable is not None:
+            persisted = durable or _load_persisted_snapshot(get_workflow(), run_id)
             if persisted is None:
                 raise HTTPException(status_code=404, detail="Run not found")
 

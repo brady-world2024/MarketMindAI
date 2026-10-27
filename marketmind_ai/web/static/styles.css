@@ -10,6 +10,34 @@
   --shadow: 0 24px 60px rgba(35, 24, 14, 0.08);
 }
 
+.human-review { padding: 20px 0; border-block: 1px solid var(--line); margin-bottom: 20px; }
+.human-review label { display: grid; gap: 8px; margin-bottom: 14px; }
+.human-review p { line-height: 1.6; overflow-wrap: anywhere; }
+.human-review fieldset { border: 0; padding: 0; margin: 18px 0; min-width: 0; }
+.human-review legend { font-weight: 700; margin-bottom: 14px; }
+.human-review textarea { width: 100%; padding: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.7); color: var(--ink); font: inherit; resize: vertical; }
+.human-review small { color: var(--muted); }
+.human-review button:disabled { opacity: .5; cursor: not-allowed; }
+.human-review button:focus-visible, .human-review summary:focus-visible, .human-review textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.human-review details { padding-block: 16px; border-top: 1px solid var(--line); }
+.human-review summary { font-weight: 700; cursor: pointer; }
+.human-review [hidden] { display: none !important; }
+.review-queue { display: flex; align-items: end; gap: 10px; }
+.review-queue label { flex: 1; min-width: 0; margin-bottom: 0; }
+.review-version { font: .8rem monospace; color: var(--muted); overflow-wrap: anywhere; }
+.review-feedback { border-left: 3px solid var(--warning); padding: 12px; background: rgba(182,82,51,.08); white-space: pre-wrap; }
+.review-table-wrap { overflow-x: auto; }
+.review-table-wrap table { width: 100%; border-collapse: collapse; font-size: .84rem; }
+.review-table-wrap caption { padding: 12px 0; text-align: left; color: var(--muted); }
+.review-table-wrap th, .review-table-wrap td { text-align: left; vertical-align: top; padding: 10px; border-bottom: 1px solid var(--line); min-width: 130px; overflow-wrap: anywhere; max-width: 300px; }
+.review-audit { padding-block: 12px; }
+.review-audit small { display: block; margin-top: 6px; }
+.review-audit p { white-space: pre-wrap; }
+#reviewBadge[data-status="approved"] { color: var(--accent); background: var(--accent-soft); }
+#reviewBadge[data-status="pending"], #reviewBadge[data-status="changes_requested"] { color: #8a491e; background: #f3e4c8; }
+#reviewBadge[data-status="rejected"], #reviewError, .review-reject { color: #a13426; }
+@media (max-width: 700px) { .review-queue { flex-direction: column; align-items: stretch; } }
+
 * {
   box-sizing: border-box;
 }

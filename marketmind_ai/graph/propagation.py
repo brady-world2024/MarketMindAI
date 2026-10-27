@@ -21,6 +21,7 @@ class Propagator:
         output_language: str,
         selected_analysts: list[str],
         symbol_resolution: dict,
+        human_feedback: str = "",
         past_context: str = "",
         research_memory_context: str = "",
         trader_memory_context: str = "",
@@ -29,6 +30,7 @@ class Propagator:
     ) -> Dict[str, Any]:
         return {
             "messages": [HumanMessage(content=ticker)],
+            "human_feedback": human_feedback,
             "company_of_interest": ticker,
             "original_query": original_query,
             "company_name": company_name,

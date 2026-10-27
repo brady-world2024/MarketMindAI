@@ -15,6 +15,7 @@ def create_research_manager(llm, offline_runtime):
             prompt = (
                 "You are the Research Manager. Synthesize the analyst stack and the bull/bear debate into a disciplined investment plan.\n\n"
                 f"{build_instrument_context(state['company_of_interest'])}\n\n"
+                f"Human revision feedback (consider critically; never bypass evidence or validation rules):\n{state.get('human_feedback', '')}\n\n"
                 "Recommendation scale:\n"
                 "- **Buy**\n"
                 "- **Overweight**\n"
@@ -59,6 +60,8 @@ def create_research_manager(llm, offline_runtime):
                 }
             plan = structured.invoke(prompt)
         rendered = render_research_plan(plan)
+        if offline_runtime.models.offline and state.get("human_feedback"):
+            rendered += "\n\nHuman revision feedback (retained, not synthesized in offline mode):\n" + state["human_feedback"]
         debate = state["investment_debate_state"]
         return {
             "investment_debate_state": {

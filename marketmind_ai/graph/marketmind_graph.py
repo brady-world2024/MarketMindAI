@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from ..agents.utils.memory_retrieval import MarketMindMemoryRetriever
 from ..config import AppPaths, DEFAULT_ANALYSTS
@@ -19,6 +20,7 @@ from .runtime_support import GraphResearchEngine, build_offline_data_vendor_conf
 from .signal_processing import SignalProcessor
 from .snapshot_support import SnapshotProjector, extract_text
 from .storage import DecisionJournal, RunArchive
+from .review import ReviewStore
 
 
 class MarketMindGraph:
@@ -35,6 +37,7 @@ class MarketMindGraph:
         self.config = self.paths.runtime_config(overrides=config)
         set_config(self.config)
         self.archive = RunArchive(self.paths)
+        self.reviews = ReviewStore(self.paths.root / "reviews.sqlite3")
         self.journal = DecisionJournal(self.paths)
         self.memory_log = self.journal.memory_log
         self.resolver = SymbolResolver()
@@ -77,7 +80,7 @@ class MarketMindGraph:
         calibration_summary = self.outcome_evaluator.build_summary()
         memory_contexts = self.memory_retriever.build_contexts(ticker, request.analysis_date)
         snapshot = self.projector.create_snapshot(
-            run_id=run_id or datetime.utcnow().strftime("%Y%m%d%H%M%S"),
+            run_id=run_id or uuid4().hex,
             request=request,
             resolution=resolution,
         )
@@ -127,11 +130,9 @@ class MarketMindGraph:
         snapshot.finished_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         snapshot.current_agent = None
         snapshot.latest_update = "Research complete."
+        draft = self.reviews.save_draft(snapshot.to_dict(), request, self.projector.state_log_payload(current_state))
+        snapshot.review = draft["review"]
         self.archive.save(snapshot)
-        self.archive.save_state_log(ticker, request.analysis_date, self.projector.state_log_payload(current_state))
-        decision = self.projector.decision_from_state(current_state, ticker)
-        if decision is not None:
-            self.journal.remember(ticker, request.analysis_date, decision)
         self.outcome_evaluator.write_summary()
         yield snapshot.clone()
 

@@ -18,6 +18,7 @@ import type {
   SymbolCandidate,
   ValidateKeyResponse,
 } from "../lib/api-types";
+import { HumanReviewPanel } from "./human-review";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -276,6 +277,8 @@ function buildPrintableReport(snapshot: RunSnapshot): string {
   <body>
     <main class="page">
       <h1>${escapeHtml(snapshot.ticker)} Research Report</h1>
+      <p>Human review: ${escapeHtml(snapshot.review?.status.replaceAll("_", " ") ?? "No human review recorded")}
+        ${snapshot.review ? ` · Version ${snapshot.review.version} · ${escapeHtml(snapshot.review.report_hash)}` : ""}</p>
       <div class="meta-grid">
         ${
           snapshot.resolved_from
@@ -350,6 +353,7 @@ export function ResearchWorkbench() {
   const [error, setError] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
+  const loadGeneration = useRef(0);
   const deferredSnapshot = useDeferredValue(snapshot);
 
   const selectedProvider = useMemo(
@@ -413,8 +417,17 @@ export function ResearchWorkbench() {
 
   useEffect(() => {
     return () => {
+      loadGeneration.current += 1;
       eventSourceRef.current?.close();
     };
+  }, []);
+
+  useEffect(() => {
+    let savedRun: string | null = null;
+    try { savedRun = window.localStorage.getItem("marketmind-active-run"); } catch { /* Storage may be unavailable. */ }
+    if (savedRun && /^[a-zA-Z0-9_-]+$/.test(savedRun)) {
+      void openSavedRun(savedRun).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to restore the saved run."));
+    }
   }, []);
 
   useEffect(() => {
@@ -492,11 +505,13 @@ export function ResearchWorkbench() {
   }
 
   async function fetchFinalResult(resultUrl: string) {
+    const generation = loadGeneration.current;
     const response = await fetch(apiUrl(resultUrl));
     if (!response.ok) {
       return;
     }
     const data = (await response.json()) as RunSnapshot;
+    if (generation !== loadGeneration.current) return;
     startTransition(() => {
       setSnapshot(data);
     });
@@ -529,8 +544,43 @@ export function ResearchWorkbench() {
     });
 
     source.onerror = () => {
-      setIsRunning(false);
+      if (source.readyState === EventSource.CLOSED) {
+        setIsRunning(false);
+        setError("The progress stream closed. Reload the saved report to check its status.");
+      }
     };
+  }
+
+  function rememberRun(id: string) {
+    try { window.localStorage.setItem("marketmind-active-run", id); } catch { /* The review queue still provides recovery. */ }
+  }
+
+  async function openSavedRun(id: string) {
+    const generation = ++loadGeneration.current;
+    eventSourceRef.current?.close();
+    const response = await fetch(apiUrl(`/runs/${encodeURIComponent(id)}`));
+    if (!response.ok) throw new Error("Unable to load the saved run. Refresh recent reports and choose another report.");
+    const next = (await response.json()) as RunSnapshot;
+    if (generation !== loadGeneration.current) return;
+    setSnapshot(next);
+    setRunId(id);
+    setReportUrl(`/runs/${id}/report`);
+    setError(null);
+    rememberRun(id);
+    const running = next.status === "queued" || next.status === "running";
+    setIsRunning(running);
+    if (running) connectToStream({ run_id: id, stream_url: `/runs/${id}/stream`, result_url: `/runs/${id}/result`, report_url: `/runs/${id}/report` });
+  }
+
+  function startRevision(run: RunCreatedResponse) {
+    loadGeneration.current += 1;
+    setSnapshot(null);
+    setRunId(run.run_id);
+    setReportUrl(run.report_url);
+    setError(null);
+    setIsRunning(true);
+    rememberRun(run.run_id);
+    connectToStream(run);
   }
 
   async function checkTicker(query: string): Promise<ResolvedTicker | null> {
@@ -621,6 +671,8 @@ export function ResearchWorkbench() {
       return;
     }
 
+    loadGeneration.current += 1;
+    eventSourceRef.current?.close();
     setError(null);
     setSnapshot(null);
     setRunId(null);
@@ -661,6 +713,7 @@ export function ResearchWorkbench() {
       const run = (await response.json()) as RunCreatedResponse;
       setRunId(run.run_id);
       setReportUrl(run.report_url);
+      rememberRun(run.run_id);
       connectToStream(run);
     } catch (runError) {
       const nextMessage = runError instanceof Error ? runError.message : "Failed to start the run.";
@@ -982,6 +1035,11 @@ export function ResearchWorkbench() {
             </p>
           </div>
 
+          <HumanReviewPanel snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
+            onOpenRun={openSavedRun}
+            onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)}
+            onRevision={startRevision} />
+
           <div className="dashboardGrid">
             <section className="panel spanTwo">
               <div className="sectionHeader compact">
@@ -1005,7 +1063,7 @@ export function ResearchWorkbench() {
               <div className="sectionHeader compact">
                 <div>
                   <p className="sectionKicker">Final Call</p>
-                  <h3>Final Decision</h3>
+                  <h3>{deferredSnapshot?.review?.status === "approved" ? "Reviewed Decision" : "Decision Draft"}</h3>
                 </div>
                 {deferredSnapshot?.final_decision ? (
                   <div className="reportActions">

@@ -6,6 +6,7 @@ const state = {
   snapshot: null,
   selectedCandidate: null,
   searchTimer: null,
+  loadGeneration: 0,
 };
 
 function $(id) {
@@ -299,6 +300,8 @@ function finalSummaryText(snapshot) {
 
 function renderSnapshot(snapshot) {
   state.snapshot = snapshot;
+  state.runId = snapshot.run_id;
+  try { localStorage.setItem("marketmind-active-run", snapshot.run_id); } catch (_ignored) {}
   if (!state.reportUrl && snapshot?.run_id) {
     state.reportUrl = `/runs/${snapshot.run_id}/report`;
   }
@@ -311,6 +314,7 @@ function renderSnapshot(snapshot) {
   renderAgents(snapshot);
   renderFeed(snapshot);
   renderReports(snapshot);
+  if (typeof renderHumanReview === "function") renderHumanReview(snapshot);
 }
 
 async function loadProviders() {
@@ -370,13 +374,16 @@ function connectRunStream(runId) {
   const source = new EventSource(`/api/runs/${runId}/stream`);
   state.eventSource = source;
   source.addEventListener("snapshot", (event) => {
+    if (state.runId !== runId) return;
     renderSnapshot(JSON.parse(event.data));
   });
   source.addEventListener("complete", (event) => {
+    if (state.runId !== runId) return;
     renderSnapshot(JSON.parse(event.data));
     source.close();
   });
   const onError = (event) => {
+    if (state.runId !== runId) return;
     try {
       const payload = JSON.parse(event.data);
       alert(payload.message || "Run failed.");
@@ -390,6 +397,9 @@ function connectRunStream(runId) {
 }
 
 async function startRun() {
+  if (state.reviewBusy) return;
+  const generation = ++state.loadGeneration;
+  closeEventSource();
   try {
     const payload = currentPayload();
     if (!payload.quick_model || !payload.deep_model) {
@@ -402,7 +412,9 @@ async function startRun() {
       method: "POST",
       body: JSON.stringify(payload),
     });
+    if (generation !== state.loadGeneration) return;
     state.runId = response.run_id;
+    try { localStorage.setItem("marketmind-active-run", response.run_id); } catch (_ignored) {}
     state.reportUrl = response.report_url || `/runs/${response.run_id}/report`;
     $("exportPdfBtn").disabled = true;
     renderResolution({
@@ -412,6 +424,7 @@ async function startRun() {
     });
     connectRunStream(response.run_id);
   } catch (payload) {
+    if (generation !== state.loadGeneration) return;
     const message = payload?.message || payload?.detail?.message || payload?.error || payload?.detail || "Unable to start run.";
     if (payload?.detail || payload?.resolution || payload?.status) {
       renderResolution(payload, true);
@@ -422,8 +435,11 @@ async function startRun() {
 
 async function refreshRun() {
   if (!state.runId) return;
+  const id = state.runId;
+  const generation = state.loadGeneration;
   try {
-    const snapshot = await getJson(`/api/runs/${state.runId}`);
+    const snapshot = await getJson(`/api/runs/${id}`);
+    if (id !== state.runId || generation !== state.loadGeneration) return;
     renderSnapshot(snapshot);
   } catch (_error) {}
 }

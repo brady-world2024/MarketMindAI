@@ -36,6 +36,10 @@ class RunArchive:
         return path
 
     def load(self, run_id: str) -> Optional[dict]:
+        from .review import ReviewStore
+        durable = ReviewStore(self.paths.root / "reviews.sqlite3").load(run_id)
+        if durable is not None:
+            return durable
         for directory in (self.paths.runs_dir, self.paths.web_runs_dir):
             path = directory / f"{run_id}.json"
             if path.exists():
@@ -47,7 +51,7 @@ class DecisionJournal:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
         self.paths.ensure()
-        self.memory_log = MarketMindMemoryLog({"memory_log_path": str(paths.memory_log_path)})
+        self.memory_log = MarketMindMemoryLog({"memory_log_path": str(paths.memory_log_path), "review_db_path": str(paths.root / "reviews.sqlite3")})
 
     def remember(self, symbol: str, analysis_date: str, decision: FinalDecision) -> None:
         self.memory_log.store_decision(symbol, analysis_date, self._to_markdown(decision))
