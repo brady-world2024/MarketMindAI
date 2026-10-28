@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ReviewDecision, ReviewSummary, RunCreatedResponse, RunSnapshot } from "../lib/api-types";
+import type { ReviewDecision, RunCreatedResponse, RunSnapshot } from "../lib/api-types";
 
 const STATUS_LABELS = {
   pending: "Awaiting human review",
@@ -29,38 +29,19 @@ type Props = {
   onOpenRun: (runId: string) => Promise<void>;
   onSnapshot: (snapshot: RunSnapshot) => void;
   onRevision: (run: RunCreatedResponse) => void;
+  onBusyChange?: (busy: boolean) => void;
 };
 
-export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onSnapshot, onRevision }: Props) {
-  const [queue, setQueue] = useState<ReviewSummary[]>([]);
+export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onSnapshot, onRevision, onBusyChange }: Props) {
   const [reviewer, setReviewer] = useState("");
   const [comment, setComment] = useState("");
   const [revisionKey, setRevisionKey] = useState("");
   const [busy, setBusy] = useState(false);
-  const [loadingQueue, setLoadingQueue] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const review = snapshot?.review;
 
-  async function refreshQueue() {
-    setLoadingQueue(true);
-    try {
-      setQueue(await readResponse<ReviewSummary[]>(await fetch(`${apiBaseUrl}/reviews`)));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load review history.");
-    } finally {
-      setLoadingQueue(false);
-    }
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetch(`${apiBaseUrl}/reviews`).then(readResponse<ReviewSummary[]>).then((items) => {
-      if (!cancelled) setQueue(items);
-    }).catch((cause) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load review history.");
-    });
-    return () => { cancelled = true; };
-  }, [apiBaseUrl, snapshot?.run_id, review?.status]);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
   useEffect(() => {
     setComment("");
@@ -83,7 +64,6 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
           reviewer: reviewer.trim(), comment: comment.trim() }),
       }));
       onSnapshot(next);
-      await refreshQueue();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Review could not be saved.");
     } finally { setBusy(false); }
@@ -116,58 +96,20 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
   const actionableBlocked = snapshot?.final_structured_decision?.decision_status === "Actionable"
     && snapshot?.report_verification?.blocks_actionable_recommendation;
   const pending = review?.status === "pending";
-  const decision = snapshot?.final_structured_decision;
   const issues = [...(snapshot?.report_verification?.issues ?? []), ...(snapshot?.report_quality?.issues ?? [])];
   const needsRevisionKey = snapshot && !["offline", "ollama"].includes(snapshot.provider);
 
-  return (
-    <section className="panel reviewPanel" aria-labelledby="review-title">
-      <div className="sectionHeader compact">
-        <div><p className="sectionKicker">Human review</p><h2 id="review-title">Review the research</h2></div>
-        {review && <span className={`reviewBadge ${review.status}`}>{STATUS_LABELS[review.status]}</span>}
-      </div>
-      <div className="reviewQueue">
-        <label className="field"><span>Recent reports</span>
-          <select aria-label="Recent reports" value={queue.some((item) => item.run_id === snapshot?.run_id) ? snapshot?.run_id : ""}
-            disabled={busy || running} onChange={(event) => { if (event.target.value) void openRun(event.target.value); }}>
-            <option value="">Choose a report to review</option>
-            {queue.map((item) => <option key={item.run_id} value={item.run_id}>
-              {item.ticker} · {item.analysis_date} · v{item.review.version} · {STATUS_LABELS[item.review.status]} · {item.run_id}
-            </option>)}
-          </select>
-        </label>
-        <button type="button" className="secondaryButton" disabled={loadingQueue || busy} onClick={() => void refreshQueue()}>
-          {loadingQueue ? "Loading…" : "Refresh reports"}
-        </button>
-      </div>
-
-      {!review ? <p className="emptyState">{snapshot?.status === "running" ? "Review becomes available when analysis and validation finish."
-        : snapshot?.final_decision ? "No human review is recorded for this legacy report."
-        : "Complete a research run or choose a saved report. Drafts stay available after you close the page."}</p> : <>
-        <div className="reviewReceipt">
-          <strong>Version {review.version}</strong><span>Analysis {snapshot?.status}</span>
-          <code title={review.report_hash}>{review.report_hash.slice(0, 16)}</code>
-        </div>
-        <p className="summaryLine">{review.status === "approved" ? "This version was accepted by a reviewer and is available to decision memory."
-          : "This report has not been accepted into decision memory. You can inspect and export it with its review status."}</p>
-        {review.parent_run_id && <button type="button" className="reviewTextButton" disabled={busy || running}
-          onClick={() => void openRun(review.parent_run_id!)}>View previous version</button>}
-        {review.feedback && <div className="reviewFeedback"><strong>Feedback for this version</strong><p>{review.feedback}</p>
-          {snapshot?.provider === "offline" && <small>Offline mode uses deterministic fixtures. The feedback is recorded for review; no live model rewrites the analysis.</small>}</div>}
-
+  const evidence = (
         <details className="reviewDetails" open>
           <summary>Validation and evidence</summary>
           <p className="summaryLine">Automated checks: {snapshot?.report_verification?.status ?? "Not available"}
             {snapshot?.report_quality && ` · Quality: ${snapshot.report_quality.grade ?? "Unscored"} (${snapshot.report_quality.score ?? "—"}/100)`}</p>
           {snapshot?.report_quality?.summary && <p>{snapshot.report_quality.summary}</p>}
           {issues.length > 0 && <ul>{issues.map((issue, i) => <li key={`${issue.code}-${i}`}>{issue.message ?? issue.code}</li>)}</ul>}
-          {decision?.evidence_gap && <p><strong>Evidence gap:</strong> {decision.evidence_gap}</p>}
-          {(decision?.key_risks ?? []).length > 0 && <><strong>Key risks</strong><ul>{decision?.key_risks?.map((risk, i) => <li key={i}>{risk}</li>)}</ul></>}
-          {decision?.counterargument && <p><strong>Counterargument:</strong> {decision.counterargument}</p>}
-          {decision?.counterargument_response && <p><strong>Response:</strong> {decision.counterargument_response}</p>}
           <div className="reviewTableWrap"><table className="reviewTable"><caption>Evidence available for this report version</caption>
             <thead><tr><th>Evidence</th><th>Source</th><th>Excerpt</th></tr></thead>
-            <tbody>{(snapshot?.evidence_ledger ?? []).map((item, i) => <tr key={`${item.evidence_id}-${i}`}>
+            <tbody>{(snapshot?.evidence_ledger ?? []).map((item, i) => <tr key={`${item.evidence_id}-${i}`}
+              id={`${snapshot?.run_id}-evidence-${item.evidence_id}`} tabIndex={-1}>
               <td><strong>{item.evidence_id}</strong><p>{item.claim}</p></td>
               <td>{item.source}<br />{item.source_date}<br />{item.freshness}<br />
                 {item.url && (/^https?:\/\//i.test(item.url) ? <a href={item.url} target="_blank" rel="noreferrer">Open source</a> : <small>{item.url}</small>)}</td>
@@ -176,6 +118,25 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
           </table></div>
           {(snapshot?.evidence_ledger ?? []).length === 0 && <p className="emptyState">No evidence ledger was captured.</p>}
         </details>
+  );
+
+  return (
+    <section className="panel reviewPanel" aria-labelledby="review-title">
+      <div className="sectionHeader compact">
+        <div><p className="sectionKicker">Human review</p><h2 id="review-title">Review this report</h2></div>
+        {review && <span className={`reviewBadge ${review.status}`}>{STATUS_LABELS[review.status]}</span>}
+      </div>
+      {!review ? <><p className="emptyState">{snapshot?.status === "running" ? "Review becomes available when analysis and validation finish."
+        : snapshot?.final_decision ? "No human review is recorded for this legacy report."
+        : "Complete a research run or choose a saved report. Drafts stay available after you close the page."}</p>{evidence}</> : <>
+        <p className="summaryLine">{review.status === "approved" ? "This version was accepted by a reviewer and is available to decision memory."
+          : "This report has not been accepted into decision memory. You can inspect and export it with its review status."}</p>
+        {review.parent_run_id && <button type="button" className="reviewTextButton" disabled={busy || running}
+          onClick={() => void openRun(review.parent_run_id!)}>View previous version</button>}
+        {review.feedback && <div className="reviewFeedback"><strong>Feedback for this version</strong><p>{review.feedback}</p>
+          {snapshot?.provider === "offline" && <small>Offline mode uses deterministic fixtures. The feedback is recorded for review; no live model rewrites the analysis.</small>}</div>}
+
+        {evidence}
 
         {pending && <fieldset className="reviewForm" disabled={busy || running}>
           <legend>Review this version</legend>
@@ -214,6 +175,10 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
             <small>{item.reviewed_at} · Version {item.version}</small><p>{item.comment || "No additional comments."}</p>
           </article>)}
         </details>}
+        <details className="reportExtra"><summary>Report details</summary><dl className="reviewMetadata">
+          <dt>Version</dt><dd>{review.version}</dd><dt>Run ID</dt><dd>{snapshot?.run_id}</dd>
+          <dt>Report fingerprint</dt><dd>{review.report_hash}</dd><dt>Ready for review</dt><dd>{review.requested_at}</dd>
+        </dl></details>
       </>}
       {busy && <p className="summaryLine" role="status">Saving or loading report…</p>}
       {error && <p className="statusBad" role="alert">{error} <button type="button" className="reviewTextButton" disabled={busy || !snapshot}

@@ -3,28 +3,23 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MarketMind AI Rebuild</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <title>MarketMind AI</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3" />
   </head>
   <body>
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Evidence-backed research console</p>
-          <h1>MarketMind AI Rebuild</h1>
+          <h1>MarketMind AI</h1>
           <p class="subhead">
-            A fresh implementation of the same end-to-end stock research experience:
-            symbol validation, LangGraph multi-agent orchestration, live stage streaming, and a guarded final decision.
+            Research a company, examine the evidence, and review the decision before it enters memory.
           </p>
         </div>
         <div class="hero-panel">
           <div class="metric">
-            <span class="metric-label">Runtime</span>
-            <span class="metric-value">LangGraph Autonomy</span>
-          </div>
-          <div class="metric">
-            <span class="metric-label">Data Source</span>
-            <span class="metric-value" id="dataSourceBadge">Hybrid</span>
+            <span class="metric-label">Provider</span>
+            <span class="metric-value" id="dataSourceBadge">Loading…</span>
           </div>
           <div class="metric">
             <span class="metric-label">Status</span>
@@ -34,9 +29,10 @@
       </header>
 
       <main class="grid">
-        <section class="panel form-panel">
+        <div class="setup-column">
+        <section class="panel form-panel" aria-labelledby="setupTitle">
           <div class="panel-heading">
-            <h2>Research Setup</h2>
+            <h2 id="setupTitle">Start your research</h2>
             <div class="header-actions">
               <button class="ghost" id="searchSymbolsBtn" type="button">Search Symbols</button>
               <button class="ghost" id="validateSymbolBtn" type="button">Validate Symbol</button>
@@ -67,26 +63,31 @@
             <input id="analysisDateInput" type="date" />
           </label>
 
-          <div class="two-up">
-            <label>
-              <span>LLM provider</span>
-              <select id="providerSelect"></select>
-            </label>
-            <label>
-              <span>Output language</span>
-              <select id="languageSelect">
-                <option>English</option>
-                <option>Chinese</option>
-              </select>
-            </label>
-          </div>
+          <label>
+            <span>Output language</span>
+            <select id="languageSelect"><option>English</option><option>Chinese</option></select>
+          </label>
+
+          <div class="setup-divider"></div>
+          <label>
+            <span>Model provider</span>
+            <select id="providerSelect"></select>
+          </label>
 
           <label>
             <span>API key</span>
-            <input id="apiKeyInput" type="password" placeholder="Optional for remote providers" />
-            <small id="apiKeyHelpText">API keys stay in the browser for this session and are only sent when you validate or start a run.</small>
+            <input id="apiKeyInput" type="password" autocomplete="off" placeholder="Enter your provider API key" />
+            <small id="apiKeyHelpText">Your key is sent to this local server for validation and research. It is not saved in browser storage.</small>
           </label>
 
+          <div class="connection-check">
+            <button class="ghost" id="validateProviderBtn" type="button">Check connection</button>
+            <p id="providerStatus" role="status" aria-live="polite">Connection not checked.</p>
+          </div>
+
+          <details class="advanced-settings">
+            <summary>Advanced settings <small>Models, analysts &amp; reasoning</small></summary>
+            <div class="details-content">
           <label>
             <span>Base URL override</span>
             <input id="baseUrlInput" type="text" placeholder="Optional custom chat-completions endpoint" />
@@ -160,44 +161,70 @@
             <label><input type="checkbox" value="fundamentals" checked /> Fundamentals Analyst</label>
           </fieldset>
 
-          <div class="actions">
-            <button class="primary" id="startRunBtn" type="button">Start Research Run</button>
-            <button class="ghost" id="validateProviderBtn" type="button">Validate Provider</button>
-          </div>
+          <label class="checkbox-label"><input id="checkpointInput" type="checkbox" /><span>Save workflow checkpoints</span></label>
+            </div>
+          </details>
 
-          <div class="resolution-card" id="resolutionCard">
-            <h3>Symbol Resolution</h3>
-            <pre id="resolutionText">No symbol has been validated yet.</pre>
+          <div class="actions run-actions">
+            <button class="primary" id="startRunBtn" type="button">Start research</button>
+            <button class="ghost" id="offlineDemoBtn" type="button">Try offline demo</button>
           </div>
+          <small class="demo-note">Offline demo uses sample data and requires no API key.</small>
+          <p id="runError" role="alert" hidden></p>
+          <details class="resolution-card" id="resolutionCard">
+            <summary>Symbol resolution</summary>
+            <pre id="resolutionText">No symbol has been validated yet.</pre>
+          </details>
         </section>
 
-        <section class="panel status-panel">
+        <section class="panel saved-reports" aria-labelledby="savedReportsTitle">
+          <div class="panel-heading"><h2 id="savedReportsTitle">Recent reports</h2><button class="ghost" type="button" id="refreshReviewsBtn">Refresh</button></div>
+          <label><span>Search reports</span><input id="reviewSearch" type="search" placeholder="Ticker, date or version" /></label>
+          <label><span>Review status</span><select id="reviewStatusFilter">
+            <option value="">All statuses</option><option value="pending">Awaiting human review</option>
+            <option value="approved">Approved</option><option value="changes_requested">Changes requested</option><option value="rejected">Rejected</option>
+          </select></label>
+          <p id="reviewQueueStatus" role="status">Loading saved reports…</p>
+          <div id="reviewQueue" class="saved-report-list" aria-label="Saved reports"></div>
+        </section>
+        </div>
+
+        <div class="output-column">
+        <section class="panel status-panel" aria-labelledby="runTitle">
           <div class="panel-heading">
-            <h2>Run State</h2>
+            <h2 id="runTitle">Research progress</h2>
             <span class="pill" id="runPill">Idle</span>
           </div>
-          <div class="agent-board" id="agentBoard"></div>
-          <div class="timeline">
-            <div class="timeline-header">
-              <h3>Live Feed</h3>
-            </div>
-            <div class="feed" id="feed"></div>
-          </div>
+          <div class="run-status-line"><strong id="runPhase" role="status">Ready when you are</strong><span id="elapsedTime">Elapsed —</span></div>
+          <p id="phaseDetail">Start a research run or open a saved report.</p>
+          <ol class="phase-steps" id="phaseSteps" aria-label="Research phases"></ol>
+          <p id="streamStatus" role="status" aria-live="polite">No active stream</p>
+          <details class="activity-details">
+            <summary>Agents &amp; activity</summary>
+            <div class="agent-board" id="agentBoard"></div>
+            <div class="timeline"><h3>Live activity</h3><div class="feed" id="feed"></div></div>
+          </details>
+          <details class="activity-details"><summary>Tool calls</summary><div class="feed" id="toolLog"><p>No tool calls recorded yet.</p></div></details>
         </section>
 
         <section class="panel report-panel">
           <div class="panel-heading">
-            <h2>Research Output</h2>
+            <h2>Research decision</h2>
             <div class="header-actions">
-              <button class="ghost" id="refreshResultBtn" type="button">Refresh Latest Snapshot</button>
+              <button class="ghost" id="refreshResultBtn" type="button">Refresh snapshot</button>
               <button class="ghost" id="exportPdfBtn" type="button" disabled>Export PDF</button>
             </div>
           </div>
+          <div class="decision-card">
+            <span class="decision-label" id="decisionLabel">Decision draft</span>
+            <strong id="finalSignal">Pending</strong>
+            <p id="finalSummary">No completed run yet.</p>
+            <div id="decisionDetails"></div>
+          </div>
+          <details class="stage-reports"><summary>Stage reports</summary><p class="muted">Read each analyst’s report and the reasoning behind the decision.</p><div class="reports" id="reports"></div></details>
           <section class="human-review" aria-labelledby="reviewTitle">
             <div class="panel-heading"><h3 id="reviewTitle">Human review</h3><span id="reviewBadge" class="pill">No report selected</span></div>
-            <div class="review-queue"><label><span>Recent reports</span><select id="reviewQueue"><option value="">Choose a saved report</option></select></label>
-              <button class="ghost" type="button" id="refreshReviewsBtn">Refresh reports</button></div>
-            <p id="reviewDescription">Complete a research run or choose a saved report. Drafts stay available after you close the page.</p>
+            <p id="reviewDescription">Complete a research run or open a recent report. Drafts stay available after you close the page.</p>
             <p id="reviewVersion" class="review-version"></p>
             <p id="revisionFeedback" class="review-feedback" hidden></p>
             <div id="reviewLinks"></div>
@@ -215,16 +242,12 @@
               <label id="revisionKeyLabel"><span id="revisionKeyTitle">API key for the original provider</span><input id="revisionApiKey" type="password" autocomplete="off" /></label>
               <button class="primary" id="reviseReportBtn" type="button">Generate revised report</button>
             </div>
-            <details id="reviewHistory" hidden open><summary>Review history</summary><div id="reviewHistoryBody"></div></details>
+            <details id="reviewHistory" hidden><summary>Review history</summary><div id="reviewHistoryBody"></div></details>
             <p id="reviewError" role="alert" hidden></p>
           </section>
-          <div class="decision-card">
-            <span class="decision-label" id="decisionLabel">Decision draft</span>
-            <strong id="finalSignal">Pending</strong>
-            <p id="finalSummary">No completed run yet.</p>
-          </div>
-          <div class="reports" id="reports"></div>
+
         </section>
+        </div>
       </main>
     </div>
     <script src="/static/app.js"></script>

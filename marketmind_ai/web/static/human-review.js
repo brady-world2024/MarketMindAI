@@ -2,6 +2,7 @@ const reviewLabels = {
   pending: "Awaiting human review", approved: "Approved", rejected: "Rejected", changes_requested: "Changes requested",
 };
 let reviewQueueKey = "";
+let reviewListGeneration = 0;
 
 function reviewError(message) {
   $("reviewError").textContent = message || "";
@@ -14,15 +15,42 @@ function reviewErrorText(error) {
   return error?.detail?.message || error?.message || "Unable to save the review. Reload the report and try again.";
 }
 
+function renderReviewQueue() {
+  const query = $("reviewSearch").value.trim().toLowerCase();
+  const status = $("reviewStatusFilter").value;
+  const items = (state.recentReviews || []).filter((item) => {
+    const text = [item.ticker, item.analysis_date, item.run_id, item.review?.version, reviewLabels[item.review?.status]].join(" ").toLowerCase();
+    return (!status || item.review?.status === status) && (!query || text.includes(query));
+  });
+  const list = $("reviewQueue");
+  list.replaceChildren();
+  const disabled = !!state.reviewBusy || !!state.startingRun || ["queued", "running"].includes(state.snapshot?.status);
+  for (const item of items) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "saved-report";
+    button.disabled = disabled;
+    button.setAttribute("aria-current", item.run_id === state.runId ? "true" : "false");
+    button.innerHTML = `<span class="saved-report-title"><strong>${escapeHtml(item.ticker || "Unknown ticker")}</strong><span>${escapeHtml(item.analysis_date || "Date unavailable")}</span></span>
+      <span class="saved-report-meta"><span>v${escapeHtml(item.review?.version || 1)}</span><span>${escapeHtml(reviewLabels[item.review?.status] || "Unreviewed")}</span></span>`;
+    button.addEventListener("click", () => void openReviewedRun(item.run_id).catch((error) => reviewError(reviewErrorText(error))));
+    list.append(button);
+  }
+  $("reviewQueueStatus").textContent = items.length ? `${items.length} saved report${items.length === 1 ? "" : "s"}`
+    : state.recentReviews?.length ? "No reports match these filters." : "No saved reports yet. Complete a research run to create one.";
+}
+
 async function refreshReviews() {
+  const generation = ++reviewListGeneration;
+  $("reviewQueueStatus").textContent = "Loading saved reports…";
   try {
     const items = await getJson("/api/reviews");
-    const select = $("reviewQueue");
-    select.replaceChildren(new Option("Choose a saved report", ""));
-    items.forEach((item) => select.add(new Option(
-      `${item.ticker} · ${item.analysis_date} · v${item.review.version} · ${reviewLabels[item.review.status]} · ${item.run_id}`, item.run_id)));
-    select.value = state.runId || "";
-  } catch (error) { reviewError(reviewErrorText(error)); }
+    if (generation !== reviewListGeneration) return;
+    state.recentReviews = items;
+    renderReviewQueue();
+  } catch (error) {
+    if (generation === reviewListGeneration) $("reviewQueueStatus").textContent = `Unable to load saved reports. ${reviewErrorText(error)}`;
+  }
 }
 
 async function openReviewedRun(id) {
@@ -56,8 +84,10 @@ function updateReviewControls() {
   $("approveReportBtn").disabled = busy || !pending || !reviewer || blocked;
   $("requestChangesBtn").disabled = $("rejectReportBtn").disabled = busy || !pending || !reviewer || !comment;
   $("reviewForm").disabled = busy;
-  $("reviewQueue").disabled = busy || ["queued", "running"].includes(snapshot?.status);
-  $("startRunBtn").disabled = busy || ["queued", "running"].includes(snapshot?.status);
+  const runActive = !!state.startingRun || ["queued", "running"].includes(snapshot?.status);
+  $("startRunBtn").disabled = busy || runActive;
+  $("offlineDemoBtn").disabled = busy || runActive;
+  renderReviewQueue();
   document.querySelectorAll("#reviewLinks button").forEach((button) => { button.disabled = busy; });
   const needsKey = snapshot && !["offline", "ollama"].includes(snapshot.provider);
   $("reviseReportBtn").disabled = busy || (needsKey && !$("revisionApiKey").value.trim());
@@ -76,7 +106,7 @@ function renderHumanReview(snapshot) {
     : "Review becomes available when analysis and validation finish.";
   $("reviewVersion").textContent = review ? `Version ${review.version} · ${review.report_hash}` : "";
   $("reviewForm").hidden = review?.status !== "pending";
-  $("reviewEvidence").hidden = !review;
+  $("reviewEvidence").hidden = !review && !snapshot.report_verification && !snapshot.evidence_ledger?.length;
   $("reviewHistory").hidden = !review?.history?.length;
   $("revisionForm").hidden = review?.status !== "changes_requested";
   $("revisionDescription").textContent = review?.revision_run_id
@@ -97,11 +127,11 @@ function renderHumanReview(snapshot) {
     button.addEventListener("click", () => void openReviewedRun(id).catch((error) => reviewError(reviewErrorText(error))));
     $("reviewLinks").append(button);
   }
-  if (review) {
+  if (review || snapshot.report_verification || snapshot.evidence_ledger?.length) {
     const decision = snapshot.final_structured_decision || {};
     const quality = snapshot.report_quality || {};
     const issues = [...(snapshot.report_verification?.issues || []), ...(quality.issues || [])];
-    const evidence = (snapshot.evidence_ledger || []).map((item) => `<tr><td><strong>${escapeHtml(item.evidence_id || "")}</strong><p>${escapeHtml(item.claim || "")}</p></td>
+    const evidence = (snapshot.evidence_ledger || []).map((item) => `<tr${evidenceAnchorId(item.evidence_id) ? ` id="${evidenceAnchorId(item.evidence_id)}" tabindex="-1"` : ""}><td><strong>${escapeHtml(item.evidence_id || "")}</strong><p>${escapeHtml(item.claim || "")}</p></td>
       <td>${escapeHtml(item.source || "")}<br>${escapeHtml(item.source_date || "")}<br>${escapeHtml(item.freshness || "")}<br>${escapeHtml(item.url || "")}</td>
       <td>${escapeHtml(item.excerpt || "")}<p>${escapeHtml(item.interpretation || "")}</p></td></tr>`).join("");
     $("reviewEvidenceBody").innerHTML = `<p>Automated checks: ${escapeHtml(snapshot.report_verification?.status || "Not available")} · Quality: ${escapeHtml(quality.grade || "Unscored")} (${escapeHtml(quality.score ?? "—")}/100)</p>
@@ -112,7 +142,7 @@ function renderHumanReview(snapshot) {
       <p><strong>Counterargument:</strong> ${escapeHtml(decision.counterargument || "Not captured")}</p>
       <p>${escapeHtml(decision.counterargument_response || "")}</p>
       <div class="review-table-wrap"><table><caption>Evidence available for this report version</caption><thead><tr><th>Evidence</th><th>Source</th><th>Excerpt</th></tr></thead><tbody>${evidence}</tbody></table></div>`;
-    $("reviewHistoryBody").innerHTML = (review.history || []).map((item) => `<article class="review-audit">
+    $("reviewHistoryBody").innerHTML = (review?.history || []).map((item) => `<article class="review-audit">
       <strong>${escapeHtml(item.decision.replaceAll("_", " "))} · ${escapeHtml(item.reviewer)}</strong>
       <small>${escapeHtml(item.reviewed_at)} · Version ${escapeHtml(item.version)}</small><p>${escapeHtml(item.comment || "No additional comments.")}</p></article>`).join("");
   }
@@ -158,7 +188,9 @@ async function generateRevision() {
     state.reportUrl = run.report_url;
     try { localStorage.setItem("marketmind-active-run", run.run_id); } catch (_ignored) {}
     renderSnapshot({ ...snapshot, run_id: run.run_id, status: "queued", review: null,
-      final_decision: null, final_signal: null, reports: [], agents: [], messages: [], tool_calls: [],
+      final_decision: null, final_signal: null, final_structured_decision: null, evidence_ledger: [],
+      report_verification: null, report_quality: null, error: null, finished_at: null, started_at: new Date().toISOString(),
+      reports: [], agents: [], messages: [], tool_calls: [],
       latest_update: "Preparing revised analysis." });
     connectRunStream(run.run_id);
   } catch (error) { reviewError(reviewErrorText(error)); }
@@ -170,7 +202,8 @@ $("rejectReportBtn").addEventListener("click", () => void submitHumanReview("rej
 $("requestChangesBtn").addEventListener("click", () => void submitHumanReview("request_changes"));
 $("reviseReportBtn").addEventListener("click", () => void generateRevision());
 $("refreshReviewsBtn").addEventListener("click", () => void refreshReviews());
-$("reviewQueue").addEventListener("change", (event) => void openReviewedRun(event.target.value).catch((error) => reviewError(reviewErrorText(error))));
+$("reviewSearch").addEventListener("input", renderReviewQueue);
+$("reviewStatusFilter").addEventListener("change", renderReviewQueue);
 for (const id of ["reviewerName", "reviewComment", "revisionApiKey"]) $(id).addEventListener("input", updateReviewControls);
 void refreshReviews();
 try {

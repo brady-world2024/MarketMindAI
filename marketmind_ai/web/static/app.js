@@ -7,6 +7,8 @@ const state = {
   selectedCandidate: null,
   searchTimer: null,
   loadGeneration: 0,
+  providerValidationGeneration: 0,
+  elapsedTimer: null,
 };
 
 function $(id) {
@@ -70,6 +72,7 @@ function currentPayload() {
     deep_model: resolvedModelValue("deep"),
     output_language: $("languageSelect").value,
     research_depth: Number($("depthInput").value),
+    checkpoint_enabled: $("checkpointInput").checked,
     google_thinking_level: $("googleThinkingLevelSelect").value,
     openai_reasoning_effort: $("openaiReasoningEffortSelect").value,
     anthropic_effort: $("anthropicEffortSelect").value,
@@ -128,9 +131,13 @@ function syncProviderModels() {
   $("baseUrlInput").placeholder = provider.base_url || "Optional custom chat-completions endpoint";
   fillModelSelect($("quickModelSelect"), provider.quick_models, provider);
   fillModelSelect($("deepModelSelect"), provider.deep_models, provider);
-  $("apiKeyHelpText").textContent = provider.requires_api_key
-    ? "API keys stay in the browser for this session and are only sent when you validate or start a run."
-    : "This provider can run without an API key. Add one only if your local gateway expects it.";
+  $("apiKeyInput").disabled = provider.value === "offline";
+  $("apiKeyInput").placeholder = provider.requires_api_key ? "Enter your provider API key" : "Optional for this provider";
+  $("apiKeyHelpText").textContent = provider.value === "offline"
+    ? "Offline demo uses deterministic fixtures. No API key or live model connection is needed."
+    : provider.requires_api_key
+      ? "Your key is sent to this local server for validation and research. It is not saved in browser storage."
+      : "This provider can run without an API key. Add one only if your local gateway expects it.";
   syncProviderReasoningControls(provider.value);
   syncCustomModelField("quick", provider);
   syncCustomModelField("deep", provider);
@@ -279,23 +286,172 @@ function renderFeed(snapshot) {
   });
 }
 
+function evidenceAnchorId(value) {
+  const id = String(value || "").trim().toUpperCase();
+  return /^E\d+$/.test(id) ? `evidence-${id}` : null;
+}
+
+function evidenceIdSet(ids) {
+  return new Set(ids.filter((id) => evidenceAnchorId(id)).map((id) => String(id).trim().toUpperCase()));
+}
+
+function evidenceLink(id) {
+  const anchor = evidenceAnchorId(id);
+  if (!anchor) return escapeHtml(id);
+  const label = String(id).trim().toUpperCase();
+  return `<a class="evidence-link" href="#${anchor}" data-evidence-id="${label}">${label}</a>`;
+}
+
+function linkEvidenceText(escapedText, ids) {
+  return escapedText.replace(/\bE\d+\b/gi, (id) => ids.has(id.toUpperCase()) ? evidenceLink(id) : id);
+}
+
+function openEvidenceLink(event) {
+  const link = event.target.closest?.("a[data-evidence-id]");
+  const anchor = evidenceAnchorId(link?.dataset.evidenceId);
+  if (!anchor) return;
+  const target = document.getElementById(anchor);
+  if (!target) return;
+  event.preventDefault();
+  let details = target.closest("details");
+  while (details) {
+    details.open = true;
+    details = details.parentElement?.closest("details");
+  }
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.focus({ preventScroll: true });
+}
+
+// Escape first, then add only a small, fixed set of presentation tags.
+// Raw HTML, links and embedded media in model output remain literal text.
+function renderReportText(value, evidenceIds = []) {
+  const ids = evidenceIdSet(evidenceIds);
+  const lines = escapeHtml(value || "").replaceAll("\r", "").split("\n");
+  const output = [];
+  let list = null;
+  let paragraph = [];
+  const inline = (text) => linkEvidenceText(text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"), ids);
+  const flushParagraph = () => {
+    if (paragraph.length) output.push(`<p>${paragraph.map(inline).join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const closeList = () => { if (list) output.push(`</${list}>`); list = null; };
+  for (const line of lines) {
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    const bullet = line.match(/^\s*[-*+]\s+(.+)$/);
+    const numbered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (heading) {
+      flushParagraph(); closeList(); output.push(`<h4>${inline(heading[1])}</h4>`);
+    } else if (bullet || numbered) {
+      flushParagraph();
+      const kind = bullet ? "ul" : "ol";
+      if (list !== kind) { closeList(); list = kind; output.push(`<${kind}>`); }
+      output.push(`<li>${inline((bullet || numbered)[1])}</li>`);
+    } else if (!line.trim()) {
+      flushParagraph(); closeList();
+    } else {
+      closeList(); paragraph.push(line);
+    }
+  }
+  flushParagraph(); closeList();
+  return output.join("");
+}
+
 function renderReports(snapshot) {
   const container = $("reports");
+  const evidenceIds = (snapshot.evidence_ledger || []).map((item) => item.evidence_id);
+  const openKeys = new Set(Array.from(container.querySelectorAll?.("details[data-report-key][open]") || []).map((item) => item.dataset.reportKey));
   container.innerHTML = "";
   (snapshot.reports || []).forEach((report) => {
     if (!report.content) return;
-    const section = document.createElement("section");
+    const section = document.createElement("details");
     section.className = "report-card";
-    section.innerHTML = `<h3>${escapeHtml(report.label)}</h3><pre>${escapeHtml(report.content)}</pre>`;
+    section.dataset.reportKey = report.key || report.label;
+    section.open = openKeys.has(section.dataset.reportKey);
+    section.innerHTML = `<summary>${escapeHtml(report.label)}</summary><div class="report-prose">${renderReportText(report.content, evidenceIds)}</div>
+      <details class="raw-report"><summary>Raw report text</summary><pre>${escapeHtml(report.content)}</pre></details>`;
     container.appendChild(section);
   });
 }
 
 function finalSummaryText(snapshot) {
-  if (!snapshot.final_decision) {
-    return snapshot.latest_update || "Waiting for research output.";
+  return snapshot.final_structured_decision?.executive_summary
+    || snapshot.final_structured_decision?.investment_thesis
+    || snapshot.latest_update || "Waiting for research output.";
+}
+
+function renderDecisionSummary(snapshot) {
+  const decision = snapshot.final_structured_decision || {};
+  $("finalSignal").textContent = decision.rating || snapshot.final_signal || decision.decision_status || "Pending";
+  $("finalSummary").textContent = finalSummaryText(snapshot);
+  const evidenceIds = (snapshot.evidence_ledger || []).map((item) => item.evidence_id);
+  const ids = evidenceIdSet(evidenceIds);
+  const reasons = (decision.core_claims || []).flatMap((item) => {
+    const claim = typeof item === "string" ? item : item.claim || item.statement;
+    if (!claim) return [];
+    const references = (typeof item === "string" ? [] : item.evidence_ids || []).filter((id) => ids.has(String(id).trim().toUpperCase()));
+    return [`<li>${linkEvidenceText(escapeHtml(claim), ids)}${references.length ? `<span class="evidence-citations"> ${references.map(evidenceLink).join(" ")}</span>` : ""}</li>`];
+  });
+  if (!reasons.length && decision.investment_thesis) reasons.push(`<li>${linkEvidenceText(escapeHtml(decision.investment_thesis), ids)}</li>`);
+  const list = (items) => `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+  const hasDecision = !!snapshot.final_structured_decision;
+  $("decisionDetails").innerHTML = hasDecision ? `
+    <p class="decision-meta">${escapeHtml(decision.decision_status || "Decision status unavailable")} · Confidence: ${escapeHtml(decision.confidence ?? "—")}/100</p>
+    <h3>Why this decision</h3>${reasons.length ? `<ul>${reasons.join("")}</ul>` : "<p>No structured reasons were captured.</p>"}
+    <h3>Key risks</h3>${decision.key_risks?.length ? list(decision.key_risks) : "<p>No structured risks were captured.</p>"}
+    <h3>Evidence gap</h3><p>${escapeHtml(decision.evidence_gap || "Not captured")}</p>
+    ${decision.counterargument ? `<h3>Strongest counterargument</h3><p>${escapeHtml(decision.counterargument)}</p><p>${escapeHtml(decision.counterargument_response || "")}</p>` : ""}`
+    : snapshot.final_decision ? `<div class="report-prose">${renderReportText(snapshot.final_decision, evidenceIds)}</div>` : "";
+}
+
+function renderElapsed(snapshot) {
+  const start = Date.parse(snapshot.started_at);
+  const finish = snapshot.finished_at ? Date.parse(snapshot.finished_at) : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(finish)) { $("elapsedTime").textContent = "Elapsed —"; return; }
+  const seconds = Math.max(0, Math.floor((finish - start) / 1000));
+  $("elapsedTime").textContent = `Elapsed ${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function renderRunProgress(snapshot) {
+  const agents = snapshot.agents || [];
+  const active = agents.find((agent) => agent.status === "in_progress");
+  const lastAgent = agents.find((agent) => agent.label === snapshot.current_agent || agent.key === snapshot.current_agent);
+  let phase = snapshot.status === "queued" ? "Queued · preparing research" : "Research in progress";
+  if (snapshot.status === "completed") phase = snapshot.review?.status === "approved" ? "Complete · human review approved"
+    : snapshot.review?.status === "changes_requested" ? "Human review · changes requested"
+    : snapshot.review?.status === "rejected" ? "Human review · report rejected" : "Awaiting human review";
+  else if (snapshot.status === "error") phase = `Run failed · ${snapshot.error || snapshot.latest_update || "See activity for details"}`;
+  else if (active) phase = `In progress · ${active.label}`;
+  else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
+  $("runPhase").textContent = phase;
+  const completed = agents.filter((agent) => agent.status === "completed").length;
+  $("phaseDetail").textContent = agents.length ? `${completed} of ${agents.length} agent stages complete${snapshot.report_verification ? ` · Validation: ${snapshot.report_verification.status || "recorded"}` : ""}` : "Stages appear as the run reports progress.";
+  renderElapsed(snapshot);
+  const groups = [
+    ["Research", ["market", "social", "news", "fundamentals"]],
+    ["Debate & thesis", ["bull", "bear", "research_manager"]],
+    ["Trade proposal", ["trader"]],
+    ["Risk review", ["aggressive", "conservative", "neutral"]],
+    ["Final decision", ["portfolio_manager"]],
+  ];
+  const reviewComplete = snapshot.review?.status === "approved";
+  const reviewPhase = reviewComplete ? "Complete" : snapshot.status === "completed" ? "In progress" : "Waiting";
+  const reviewStatus = reviewComplete ? "Approved" : snapshot.review?.status === "changes_requested" ? "Changes requested"
+    : snapshot.review?.status === "rejected" ? "Rejected" : snapshot.status === "completed" ? "Awaiting review" : "Waiting";
+  $("phaseSteps").innerHTML = groups.map(([label, keys]) => {
+    const members = agents.filter((agent) => keys.includes(agent.key));
+    const status = members.length && members.every((agent) => agent.status === "completed") ? "Complete"
+      : members.some((agent) => agent.status === "error") ? "Failed"
+      : members.some((agent) => agent.status === "in_progress" || agent.status === "completed") ? "In progress" : "Waiting";
+    return `<li data-phase-status="${status}"><span>${label}</span><small>${status}</small></li>`;
+  }).join("") + `<li data-phase-status="${snapshot.report_verification?.status === "failed" ? "Failed" : snapshot.report_verification ? "Complete" : "Waiting"}"><span>Validation</span><small>${escapeHtml(snapshot.report_verification?.status || "Waiting")}</small></li>` + `<li data-phase-status="${reviewPhase}"><span>Human review</span><small>${reviewStatus}</small></li>`;
+  if (["completed", "error"].includes(snapshot.status)) {
+    $("streamStatus").textContent = snapshot.status === "error" ? "Run failed" : "Run complete";
   }
-  return snapshot.final_decision.split("\n").find((line) => line.trim()) || snapshot.final_decision;
+}
+
+function renderToolCalls(snapshot) {
+  $("toolLog").innerHTML = (snapshot.tool_calls || []).slice(-20).map((tool) => `<article class="feed-item"><strong>${escapeHtml(tool.name)}</strong><small>${escapeHtml(tool.timestamp)}</small><pre>${escapeHtml(tool.args || "")}</pre></article>`).join("") || "<p>No tool calls recorded yet.</p>";
 }
 
 function renderSnapshot(snapshot) {
@@ -308,8 +464,9 @@ function renderSnapshot(snapshot) {
   $("runPill").textContent = snapshot.status;
   $("appStatus").textContent = snapshot.latest_update || snapshot.status;
   $("dataSourceBadge").textContent = snapshot.provider;
-  $("finalSignal").textContent = snapshot.final_signal || "Pending";
-  $("finalSummary").textContent = finalSummaryText(snapshot);
+  renderDecisionSummary(snapshot);
+  renderRunProgress(snapshot);
+  renderToolCalls(snapshot);
   $("exportPdfBtn").disabled = snapshot.status !== "completed";
   renderAgents(snapshot);
   renderFeed(snapshot);
@@ -345,7 +502,30 @@ async function validateSymbol() {
   }
 }
 
+function providerFingerprint() {
+  return JSON.stringify([$("providerSelect").value, $("apiKeyInput").value.trim(), $("baseUrlInput").value.trim(), resolvedModelValue("quick"), resolvedModelValue("deep")]);
+}
+
+function invalidateProviderValidation() {
+  ++state.providerValidationGeneration;
+  $("providerStatus").textContent = $("providerSelect").value === "offline" ? "Offline demo · no connection needed" : "Connection not checked for these settings.";
+  $("providerStatus").dataset.state = "idle";
+  $("validateProviderBtn").disabled = false;
+}
+
+function changeProvider() {
+  $("apiKeyInput").value = "";
+  $("baseUrlInput").value = "";
+  syncProviderModels();
+  invalidateProviderValidation();
+}
+
 async function validateProvider() {
+  const generation = ++state.providerValidationGeneration;
+  const fingerprint = providerFingerprint();
+  $("providerStatus").textContent = "Checking connection…";
+  $("providerStatus").dataset.state = "checking";
+  $("validateProviderBtn").disabled = true;
   try {
     const payload = await getJson("/api/validate-key", {
       method: "POST",
@@ -356,9 +536,15 @@ async function validateProvider() {
         base_url: $("baseUrlInput").value.trim(),
       }),
     });
-    alert(payload.message);
+    if (generation !== state.providerValidationGeneration || fingerprint !== providerFingerprint()) return;
+    $("providerStatus").textContent = payload.message || (payload.valid === false ? "Connection check failed." : "Connection verified.");
+    $("providerStatus").dataset.state = payload.valid === false ? "error" : "ok";
   } catch (payload) {
-    alert(payload.error || payload.message || "Validation failed.");
+    if (generation !== state.providerValidationGeneration || fingerprint !== providerFingerprint()) return;
+    $("providerStatus").textContent = payload.error || payload.message || payload.detail || "Connection check failed.";
+    $("providerStatus").dataset.state = "error";
+  } finally {
+    if (generation === state.providerValidationGeneration) $("validateProviderBtn").disabled = false;
   }
 }
 
@@ -373,31 +559,52 @@ function connectRunStream(runId) {
   closeEventSource();
   const source = new EventSource(`/api/runs/${runId}/stream`);
   state.eventSource = source;
+  $("streamStatus").textContent = "Connecting to live updates…";
+  const isCurrent = () => state.runId === runId && state.eventSource === source;
+  source.addEventListener("open", () => {
+    if (isCurrent()) $("streamStatus").textContent = "Live updates connected";
+  });
   source.addEventListener("snapshot", (event) => {
-    if (state.runId !== runId) return;
-    renderSnapshot(JSON.parse(event.data));
+    if (!isCurrent()) return;
+    $("streamStatus").textContent = "Live updates connected";
+    const snapshot = JSON.parse(event.data);
+    renderSnapshot(snapshot);
+    if (["completed", "error"].includes(snapshot.status)) { source.close(); state.eventSource = null; }
   });
   source.addEventListener("complete", (event) => {
-    if (state.runId !== runId) return;
+    if (!isCurrent()) return;
     renderSnapshot(JSON.parse(event.data));
     source.close();
+    state.eventSource = null;
   });
-  const onError = (event) => {
-    if (state.runId !== runId) return;
-    try {
-      const payload = JSON.parse(event.data);
-      alert(payload.message || "Run failed.");
-    } catch (_ignored) {
-      alert("Run failed.");
-    }
+  const failRun = (message) => {
+    renderSnapshot({ ...state.snapshot, run_id: runId, status: "error", error: message, finished_at: new Date().toISOString() });
+    $("streamStatus").textContent = message;
     source.close();
+    state.eventSource = null;
+    void refreshRun();
   };
-  source.addEventListener("run_error", onError);
-  source.addEventListener("error", onError);
+  source.addEventListener("run_error", (event) => {
+    if (!isCurrent()) return;
+    let message = "Run failed. Refresh the snapshot for details.";
+    try { message = JSON.parse(event.data).message || message; } catch (_ignored) {}
+    failRun(message);
+  });
+  source.addEventListener("error", (event) => {
+    if (!isCurrent()) return;
+    if (event.data) {
+      try { failRun(JSON.parse(event.data).message || "Run failed."); return; } catch (_ignored) {}
+    }
+    $("streamStatus").textContent = "Live updates interrupted · reconnecting. The run may still be active.";
+  });
 }
 
 async function startRun() {
-  if (state.reviewBusy) return;
+  if (state.reviewBusy || state.startingRun || ["queued", "running"].includes(state.snapshot?.status)) return;
+  state.startingRun = true;
+  $("runError").hidden = true;
+  $("startRunBtn").disabled = true;
+  $("offlineDemoBtn").disabled = true;
   const generation = ++state.loadGeneration;
   closeEventSource();
   try {
@@ -422,6 +629,9 @@ async function startRun() {
       status: "RESOLVED",
       message: "Symbol validated and run created.",
     });
+    renderSnapshot({ run_id: response.run_id, ticker: payload.ticker, analysis_date: payload.analysis_date,
+      status: "queued", provider: payload.llm_provider, started_at: new Date().toISOString(),
+      latest_update: "Preparing research.", reports: [], agents: [], messages: [], tool_calls: [] });
     connectRunStream(response.run_id);
   } catch (payload) {
     if (generation !== state.loadGeneration) return;
@@ -429,7 +639,13 @@ async function startRun() {
     if (payload?.detail || payload?.resolution || payload?.status) {
       renderResolution(payload, true);
     }
-    alert(message);
+    $("runError").textContent = String(message);
+    $("runError").hidden = false;
+  } finally {
+    state.startingRun = false;
+    const running = ["queued", "running"].includes(state.snapshot?.status);
+    $("startRunBtn").disabled = !!state.reviewBusy || running;
+    $("offlineDemoBtn").disabled = !!state.reviewBusy || running;
   }
 }
 
@@ -456,12 +672,17 @@ function exportPdf() {
 }
 
 function bindEvents() {
-  $("providerSelect").addEventListener("change", syncProviderModels);
+  $("reports").addEventListener("click", openEvidenceLink);
+  $("decisionDetails").addEventListener("click", openEvidenceLink);
+  $("providerSelect").addEventListener("change", changeProvider);
+  for (const id of ["apiKeyInput", "baseUrlInput", "quickModelCustomInput", "deepModelCustomInput"]) $(id).addEventListener("input", invalidateProviderValidation);
   $("quickModelSelect").addEventListener("change", () => {
     syncCustomModelField("quick", providerByValue($("providerSelect").value));
+    invalidateProviderValidation();
   });
   $("deepModelSelect").addEventListener("change", () => {
     syncCustomModelField("deep", providerByValue($("providerSelect").value));
+    invalidateProviderValidation();
   });
   $("tickerInput").addEventListener("input", () => {
     state.selectedCandidate = null;
@@ -476,6 +697,12 @@ function bindEvents() {
   });
   $("validateProviderBtn").addEventListener("click", () => {
     void validateProvider();
+  });
+  $("offlineDemoBtn").addEventListener("click", () => {
+    if (state.reviewBusy || state.startingRun || ["queued", "running"].includes(state.snapshot?.status)) return;
+    $("providerSelect").value = "offline";
+    changeProvider();
+    void startRun();
   });
   $("startRunBtn").addEventListener("click", () => {
     void startRun();
@@ -494,7 +721,16 @@ async function bootstrap() {
   $("analysisDateInput").max = isoToday();
   $("depthLabel").textContent = $("depthInput").value;
   bindEvents();
-  await loadProviders();
+  try {
+    await loadProviders();
+    invalidateProviderValidation();
+  } catch (_error) {
+    $("providerStatus").textContent = "Unable to load providers. Reload the page to try again.";
+    $("providerStatus").dataset.state = "error";
+  }
+  state.elapsedTimer = window.setInterval(() => {
+    if (state.snapshot && ["queued", "running"].includes(state.snapshot.status)) renderElapsed(state.snapshot);
+  }, 1000);
 }
 
 bootstrap();
