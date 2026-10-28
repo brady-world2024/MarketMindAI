@@ -5,6 +5,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -12,13 +13,17 @@ import {
 import type {
   ProviderOption,
   ResolvedTicker,
-  ResolutionErrorResponse,
   RunCreatedResponse,
   RunSnapshot,
   SymbolCandidate,
   ValidateKeyResponse,
 } from "../lib/api-types";
 import { HumanReviewPanel } from "./human-review";
+import { initialProviderSettings, providerSettingsReducer, type SettingsField } from "../lib/provider-settings";
+import { ResearchReport } from "./research-report";
+import { ResearchProgress, type StreamState } from "./research-progress";
+import { ReportText } from "./report-text";
+import { ReportHistory } from "./report-history";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -56,7 +61,8 @@ function withQuery(path: string, query: string): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function prettyStatus(status: string): string {
@@ -109,39 +115,6 @@ function resolutionStatusMessage(resolution: ResolvedTicker): string {
   }
 
   return resolution.reason?.trim() || "Unable to resolve the requested symbol.";
-}
-
-function resolutionFailureMessage(resolution: ResolvedTicker): string {
-  if (resolution.status === "NOT_FOUND") {
-    return `No verified symbol found for "${resolution.original_input}".`;
-  }
-  if (resolution.status === "AMBIGUOUS") {
-    return "Multiple close matches were found. Choose one to continue.";
-  }
-  if (resolution.status === "INSUFFICIENT_DATA") {
-    return resolution.reason?.trim() || "This symbol does not have enough market data.";
-  }
-  return resolution.reason?.trim() || "Unable to resolve the requested symbol.";
-}
-
-function formatResolutionError(payload: ResolutionErrorResponse): string {
-  const detail = payload.detail;
-  if (!detail) {
-    return "Unable to resolve the requested symbol.";
-  }
-
-  const parts = [detail.message];
-  const candidates = detail.resolution?.candidates ?? [];
-  if (candidates.length > 0) {
-    parts.push("");
-    parts.push("Suggestions:");
-    for (const candidate of candidates.slice(0, 5)) {
-      parts.push(
-        `- ${candidate.symbol} — ${candidate.name}${candidate.exchange ? ` — ${candidate.exchange}` : ""}${candidate.region ? ` — ${candidate.region}` : ""}`,
-      );
-    }
-  }
-  return parts.join("\n");
 }
 
 function escapeHtml(value: string): string {
@@ -324,13 +297,8 @@ function buildPrintableReport(snapshot: RunSnapshot): string {
 
 export function ResearchWorkbench() {
   const [providers, setProviders] = useState<ProviderOption[]>([]);
-  const [provider, setProvider] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [quickModel, setQuickModel] = useState("");
-  const [quickCustom, setQuickCustom] = useState("");
-  const [deepModel, setDeepModel] = useState("");
-  const [deepCustom, setDeepCustom] = useState("");
+  const [settings, dispatchSettings] = useReducer(providerSettingsReducer, initialProviderSettings);
+  const { provider, apiKey, baseUrl, quickModel, quickCustom, deepModel, deepCustom, isValidatingKey, validationResult } = settings;
   const [analysts, setAnalysts] = useState<string[]>(
     ANALYST_OPTIONS.map((option) => option.value),
   );
@@ -339,7 +307,6 @@ export function ResearchWorkbench() {
   const [tickerResolution, setTickerResolution] = useState<ResolvedTicker | null>(null);
   const [tickerCandidates, setTickerCandidates] = useState<SymbolCandidate[]>([]);
   const [tickerError, setTickerError] = useState<string | null>(null);
-  const [isCheckingTicker, setIsCheckingTicker] = useState(false);
   const [outputLanguage, setOutputLanguage] = useState("English");
   const [customLanguage, setCustomLanguage] = useState("");
   const [snapshot, setSnapshot] = useState<RunSnapshot | null>(null);
@@ -347,14 +314,21 @@ export function ResearchWorkbench() {
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [checkpointEnabled, setCheckpointEnabled] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
-  const [isValidatingKey, setIsValidatingKey] = useState(false);
-  const [validationResult, setValidationResult] = useState<ValidateKeyResponse | null>(null);
+  const [streamState, setStreamState] = useState<StreamState>("idle");
+  const [researchDepth, setResearchDepth] = useState(1);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const loadGeneration = useRef(0);
+  const connectionController = useRef<AbortController | null>(null);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
   const deferredSnapshot = useDeferredValue(snapshot);
+  const activeRunRef = useRef(runId);
+  activeRunRef.current = runId;
 
   const selectedProvider = useMemo(
     () => providers.find((item) => item.value === provider) ?? null,
@@ -365,7 +339,21 @@ export function ResearchWorkbench() {
   const deepNeedsCustom = deepModel === "custom";
   const languageNeedsCustom = outputLanguage === "custom";
 
+  function editSetting(field: SettingsField, value: string) {
+    connectionController.current?.abort();
+    dispatchSettings({ type: "edit", field, value });
+  }
+
+  function chooseProvider(value: string) {
+    const option = providers.find((item) => item.value === value);
+    if (!option) return;
+    connectionController.current?.abort();
+    setShowApiKey(false);
+    dispatchSettings({ type: "select", provider: option });
+  }
+
   useEffect(() => {
+    let cancelled = false;
     async function loadProviders() {
       try {
         setIsLoadingProviders(true);
@@ -374,51 +362,30 @@ export function ResearchWorkbench() {
           throw new Error("Failed to load providers.");
         }
         const data = (await response.json()) as ProviderOption[];
+        if (cancelled) return;
         setProviders(data);
         if (data.length > 0) {
-          setProvider(data[0].value);
+          dispatchSettings({ type: "select", provider: data[0] });
         }
       } catch (loadError) {
+        if (cancelled) return;
         const nextMessage =
           loadError instanceof Error ? loadError.message : "Unable to load providers.";
         setError(nextMessage);
       } finally {
-        setIsLoadingProviders(false);
+        if (!cancelled) setIsLoadingProviders(false);
       }
     }
 
     void loadProviders();
+    return () => { cancelled = true; };
   }, []);
-
-  useEffect(() => {
-    if (!selectedProvider) {
-      return;
-    }
-
-    if (
-      selectedProvider.quick_models.length > 0 &&
-      !selectedProvider.quick_models.some((item) => item.value === quickModel)
-    ) {
-      setQuickModel(selectedProvider.quick_models[0].value);
-      setQuickCustom("");
-    }
-
-    if (
-      selectedProvider.deep_models.length > 0 &&
-      !selectedProvider.deep_models.some((item) => item.value === deepModel)
-    ) {
-      setDeepModel(selectedProvider.deep_models[0].value);
-      setDeepCustom("");
-    }
-
-    setValidationResult(null);
-    setBaseUrl(selectedProvider.base_url ?? "");
-  }, [selectedProvider, quickModel, deepModel]);
 
   useEffect(() => {
     return () => {
       loadGeneration.current += 1;
       eventSourceRef.current?.close();
+      connectionController.current?.abort();
     };
   }, []);
 
@@ -457,22 +424,25 @@ export function ResearchWorkbench() {
       (deepNeedsCustom ? deepCustom.trim() : deepModel);
 
     if (!modelToValidate) {
-      setValidationResult({
+      dispatchSettings({ type: "validation-finished", revision: settings.revision, result: {
         valid: false,
         provider,
         model: "",
         message: "Select a model first.",
-      });
+      } });
       return;
     }
 
-    setIsValidatingKey(true);
-    setValidationResult(null);
-    setError(null);
+    const revision = settings.revision;
+    connectionController.current?.abort();
+    const controller = new AbortController();
+    connectionController.current = controller;
+    dispatchSettings({ type: "validation-started", revision });
 
     try {
       const response = await fetch(apiUrl("/validate-key"), {
         method: "POST",
+        signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
         },
@@ -484,70 +454,76 @@ export function ResearchWorkbench() {
         }),
       });
 
-      const data = (await response.json()) as ValidateKeyResponse;
-      setValidationResult(data);
-      if (!data.valid) {
-        setError(data.message);
-      }
+      const payload = await response.json();
+      const data: ValidateKeyResponse = response.ok ? payload : {
+        valid: false, provider, model: modelToValidate,
+        message: typeof payload.detail === "string" ? payload.detail : "Connection check failed. Check the provider, model and API key.",
+      };
+      dispatchSettings({ type: "validation-finished", revision, result: data });
     } catch (validateError) {
+      if (controller.signal.aborted || settingsRef.current.revision !== revision) return;
       const nextMessage =
         validateError instanceof Error ? validateError.message : "Unable to validate the API key.";
-      setValidationResult({
+      dispatchSettings({ type: "validation-finished", revision, result: {
         valid: false,
         provider,
         model: modelToValidate,
         message: nextMessage,
-      });
-      setError(nextMessage);
-    } finally {
-      setIsValidatingKey(false);
+      } });
     }
-  }
-
-  async function fetchFinalResult(resultUrl: string) {
-    const generation = loadGeneration.current;
-    const response = await fetch(apiUrl(resultUrl));
-    if (!response.ok) {
-      return;
-    }
-    const data = (await response.json()) as RunSnapshot;
-    if (generation !== loadGeneration.current) return;
-    startTransition(() => {
-      setSnapshot(data);
-    });
   }
 
   function connectToStream(run: RunCreatedResponse) {
     eventSourceRef.current?.close();
     const source = new EventSource(apiUrl(run.stream_url));
     eventSourceRef.current = source;
+    const generation = loadGeneration.current;
+    let finished = false;
+    const isCurrent = () => !finished && eventSourceRef.current === source && generation === loadGeneration.current;
+    const finish = (next: RunSnapshot) => {
+      finished = true;
+      setSnapshot(next);
+      setRunId(next.run_id);
+      setReportUrl(run.report_url);
+      setIsRunning(false);
+      setStreamState("finished");
+      if (next.status === "error") setError(next.error ?? "The analysis failed.");
+      source.close();
+    };
+    setStreamState("connecting");
+    source.onopen = () => { if (isCurrent()) setStreamState("live"); };
 
     source.addEventListener("snapshot", (event) => {
-      const nextSnapshot = JSON.parse(event.data) as RunSnapshot;
+      if (!isCurrent()) return;
+      const next = JSON.parse(event.data) as RunSnapshot;
+      if (next.status === "error" || next.status === "completed") { finish(next); return; }
       startTransition(() => {
-        setSnapshot(nextSnapshot);
-        setRunId(nextSnapshot.run_id);
-        setReportUrl((current) => current ?? `/runs/${nextSnapshot.run_id}/report`);
+        setSnapshot(next);
+        setRunId(next.run_id);
+        setReportUrl(run.report_url);
       });
+    });
 
-      if (nextSnapshot.status === "error") {
-        setError(nextSnapshot.error ?? "The run failed.");
+    source.addEventListener("complete", (event) => {
+      if (!isCurrent()) return;
+      finish(JSON.parse(event.data) as RunSnapshot);
+    });
+
+    source.onerror = (event) => {
+      if (!isCurrent()) return;
+      // The server sends an error message for a failed run. Transport errors have no data.
+      if (event instanceof MessageEvent && event.data) {
+        const payload = JSON.parse(event.data) as { message?: string };
+        finished = true;
+        setError(payload.message ?? "The analysis failed.");
+        setSnapshot((current) => current?.run_id === run.run_id
+          ? { ...current, status: "error", error: payload.message ?? "The analysis failed." } : current);
         setIsRunning(false);
+        setStreamState("finished");
         source.close();
+        return;
       }
-    });
-
-    source.addEventListener("complete", async () => {
-      setIsRunning(false);
-      source.close();
-      await fetchFinalResult(run.result_url);
-    });
-
-    source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED) {
-        setIsRunning(false);
-        setError("The progress stream closed. Reload the saved report to check its status.");
-      }
+      setStreamState(source.readyState === EventSource.CLOSED ? "disconnected" : "reconnecting");
     };
   }
 
@@ -559,6 +535,7 @@ export function ResearchWorkbench() {
     const generation = ++loadGeneration.current;
     eventSourceRef.current?.close();
     const response = await fetch(apiUrl(`/runs/${encodeURIComponent(id)}`));
+    if (generation !== loadGeneration.current) return;
     if (!response.ok) throw new Error("Unable to load the saved run. Refresh recent reports and choose another report.");
     const next = (await response.json()) as RunSnapshot;
     if (generation !== loadGeneration.current) return;
@@ -569,6 +546,7 @@ export function ResearchWorkbench() {
     rememberRun(id);
     const running = next.status === "queued" || next.status === "running";
     setIsRunning(running);
+    setStreamState(running ? "connecting" : "finished");
     if (running) connectToStream({ run_id: id, stream_url: `/runs/${id}/stream`, result_url: `/runs/${id}/result`, report_url: `/runs/${id}/report` });
   }
 
@@ -583,69 +561,8 @@ export function ResearchWorkbench() {
     connectToStream(run);
   }
 
-  async function checkTicker(query: string): Promise<ResolvedTicker | null> {
-    const normalized = normalizeQuery(query);
-    if (!normalized) {
-      setTickerResolution(null);
-      setTickerCandidates([]);
-      setTickerError("Enter a symbol or company name.");
-      return null;
-    }
-
-    try {
-      setIsCheckingTicker(true);
-      setTickerError(null);
-      setTickerCandidates([]);
-      const response = await fetch(apiUrl("/api/symbols/resolve"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: normalized,
-          analysis_date: analysisDate,
-        }),
-      });
-
-      if (!response.ok) {
-        const message = (await response.text()) || "Unable to resolve the requested symbol.";
-        throw new Error(message);
-      }
-
-      const resolved = (await response.json()) as ResolvedTicker;
-      setTickerResolution(resolved);
-
-      if (resolved.status === "RESOLVED") {
-        if (resolved.resolved_symbol) {
-          setTicker(resolved.resolved_symbol);
-        }
-        return resolved;
-      }
-
-      setTickerCandidates((resolved.candidates ?? []).slice(0, 5));
-      setTickerError(resolutionFailureMessage(resolved));
-      return resolved;
-    } catch (resolveError) {
-      const message =
-        resolveError instanceof Error
-          ? resolveError.message
-          : "Unable to resolve the requested symbol.";
-      setTickerCandidates([]);
-      setTickerError(message);
-      return null;
-    } finally {
-      setIsCheckingTicker(false);
-    }
-  }
-
-  async function handleTickerSelection(candidate: SymbolCandidate) {
-    setTicker(candidate.symbol);
-    setTickerError(null);
-    await checkTicker(candidate.symbol);
-  }
-
   async function startRun() {
-    if (!selectedProvider) {
+    if (!selectedProvider || isRunning || reviewBusy) {
       return;
     }
     if (analysts.length === 0) {
@@ -666,18 +583,22 @@ export function ResearchWorkbench() {
       tickerResolution?.status === "RESOLVED" && resolutionMatchesInput(tickerResolution, ticker)
         ? tickerResolution
         : null;
-    if (!resolvedTicker) {
-      setTickerError("Check the symbol before starting.");
+    if (!normalizeQuery(ticker)) {
+      setTickerError("Enter a company name or ticker to research.");
       return;
     }
 
     loadGeneration.current += 1;
+    const generation = loadGeneration.current;
     eventSourceRef.current?.close();
     setError(null);
     setSnapshot(null);
     setRunId(null);
     setReportUrl(null);
     setIsRunning(true);
+    setStreamState("connecting");
+    setTickerError(null);
+    setTickerCandidates([]);
 
     try {
       const response = await fetch(apiUrl("/runs"), {
@@ -686,7 +607,7 @@ export function ResearchWorkbench() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          ticker: resolvedTicker.resolved_symbol ?? ticker,
+          ticker: resolvedTicker?.resolved_symbol ?? normalizeQuery(ticker),
           analysis_date: analysisDate,
           llm_provider: provider,
           api_key: apiKey.trim() || null,
@@ -696,29 +617,40 @@ export function ResearchWorkbench() {
           output_language: resolvedLanguage,
           base_url: baseUrl.trim() || null,
           checkpoint_enabled: checkpointEnabled,
+          research_depth: researchDepth,
         }),
       });
 
       if (!response.ok) {
-        let message = "Failed to create the run.";
+        const text = await response.text();
+        if (generation !== loadGeneration.current) return;
+        let message = text || "Failed to create the run.";
         try {
-          const payload = (await response.json()) as ResolutionErrorResponse;
-          message = formatResolutionError(payload);
-        } catch {
-          message = (await response.text()) || message;
-        }
+          const payload = JSON.parse(text);
+          const detail = payload.detail;
+          if (typeof detail === "string") message = detail;
+          else if (Array.isArray(detail)) message = detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join("; ");
+          else if (detail?.message) {
+            message = detail.message;
+            setTickerCandidates(detail.resolution?.candidates ?? []);
+          }
+        } catch { /* A plain response body is already a useful error. */ }
         throw new Error(message);
       }
 
       const run = (await response.json()) as RunCreatedResponse;
+      if (generation !== loadGeneration.current) return;
+      if (run.ticker_resolution) setTickerResolution(run.ticker_resolution);
       setRunId(run.run_id);
       setReportUrl(run.report_url);
       rememberRun(run.run_id);
       connectToStream(run);
     } catch (runError) {
+      if (generation !== loadGeneration.current) return;
       const nextMessage = runError instanceof Error ? runError.message : "Failed to start the run.";
       setError(nextMessage);
       setIsRunning(false);
+      setStreamState("idle");
     }
   }
 
@@ -756,431 +688,110 @@ export function ResearchWorkbench() {
     window.open(apiUrl(reportUrl ?? `/runs/${deferredSnapshot?.run_id}/report`), "_blank", "noopener,noreferrer");
   }
 
+  const reportSnapshot = deferredSnapshot?.run_id === snapshot?.run_id ? deferredSnapshot : snapshot;
+  const evidenceIds = (reportSnapshot?.evidence_ledger ?? []).flatMap((item) => item.evidence_id ? [item.evidence_id] : []);
+  const hasResult = !!reportSnapshot?.final_decision;
+  const offline = provider === "offline";
+
   return (
     <main className="shell">
-      <section className="layout">
-        <aside className="panel controlPanel">
-          <div className="sectionHeader">
-            <h2>MarketMind AI</h2>
-          </div>
-
-          <div className="formGrid">
-            <label className="field">
-              <span>LLM Provider</span>
-              <select
-                value={provider}
-                onChange={(event) => setProvider(event.target.value)}
-                disabled={isLoadingProviders}
-              >
-                {providers.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="field">
-              <span>API Key</span>
-              <div className="inlineField">
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={
-                    selectedProvider?.requires_api_key
-                      ? "Enter the provider API key"
-                      : "Optional for local Ollama"
-                  }
-                />
-                <button
-                  type="button"
-                  className="secondaryButton"
-                  onClick={() => {
-                    void validateKey();
-                  }}
-                  disabled={isValidatingKey || !provider}
-                >
-                  {isValidatingKey ? "Checking..." : "Check Key"}
-                </button>
+      <header className="workbenchHeader"><div><p className="eyebrow">MarketMind AI</p>
+        <h1>Research with a clearer view.</h1></div><p>Follow the evidence. Review the decision.</p></header>
+      <div className="layout workbenchLayout">
+        <aside className="setupColumn">
+          <section className="panel setupPanel" aria-labelledby="setup-title">
+            <div className="sectionHeader"><div><p className="sectionKicker">New research</p><h2 id="setup-title">What are you researching?</h2></div></div>
+            <form className="formGrid" onSubmit={(event) => { event.preventDefault(); void startRun(); }}>
+              <label className="field"><span>Company or ticker</span><input value={ticker} required
+                placeholder="AAPL or Apple" autoComplete="off" spellCheck={false} onChange={(event) => {
+                  setTicker(event.target.value); setTickerResolution(null); setTickerCandidates([]); setTickerError(null);
+                }} /><small>Company names are resolved before research begins.</small></label>
+              {tickerResolution?.status === "RESOLVED" && <p className="statusGood tickerStatus">{resolutionStatusMessage(tickerResolution)}</p>}
+              {tickerError && <p className="statusBad" role="alert">{tickerError}</p>}
+              {tickerCandidates.length > 0 && <div className="tickerPrompt"><p className="summaryLine">Choose the company you meant, then start research again:</p>
+                {tickerCandidates.map((candidate) => <button type="button" className="tickerPromptButton"
+                  key={`${candidate.symbol}-${candidate.exchange}`} onClick={() => {
+                    setTicker(candidate.symbol); setTickerResolution(null); setTickerCandidates([]); setTickerError(null); setError(null);
+                  }}><strong>{formatCandidateLabel(candidate)}</strong><small>{formatCandidateMeta(candidate)}</small></button>)}</div>}
+              <div className="setupPair"><label className="field"><span>Analysis date</span><input type="date" required
+                value={analysisDate} max={todayIso()} onChange={(event) => { setAnalysisDate(event.target.value); setTickerResolution(null); }} /></label>
+                <label className="field"><span>Report language</span><select value={outputLanguage} onChange={(event) => setOutputLanguage(event.target.value)}>
+                  {LANGUAGE_OPTIONS.map((item) => <option key={item}>{item}</option>)}<option value="custom">Custom</option></select></label></div>
+              {languageNeedsCustom && <label className="field"><span>Custom language</span><input value={customLanguage} required
+                placeholder="For example: Turkish" onChange={(event) => setCustomLanguage(event.target.value)} /></label>}
+              <div className="providerSection"><label className="field"><span>AI provider</span><select value={provider}
+                onChange={(event) => chooseProvider(event.target.value)} disabled={isLoadingProviders}>
+                {isLoadingProviders && <option value="">Loading providers…</option>}
+                {providers.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+                {!offline ? <><label className="field"><span>API key{!selectedProvider?.requires_api_key && " (optional)"}</span>
+                  <div className="keyInput"><input type={showApiKey ? "text" : "password"} value={apiKey} autoComplete="off"
+                    required={selectedProvider?.requires_api_key} placeholder="Enter this provider’s key"
+                    onChange={(event) => editSetting("apiKey", event.target.value)} />
+                    <button type="button" className="keyVisibility" aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                      aria-pressed={showApiKey} onClick={() => setShowApiKey(!showApiKey)}>{showApiKey ? "Hide" : "Show"}</button></div>
+                  <small>Used for this run. Not saved with the report.</small></label>
+                  <button type="button" className="secondaryButton connectionCheck" disabled={isValidatingKey || !provider}
+                    onClick={() => void validateKey()}>{isValidatingKey ? "Checking connection…" : "Check connection"}</button></>
+                  : <p className="offlineNotice">Offline demo uses sample data and local rules. No API key or paid model calls.</p>}
+                {validationResult && <p role="status" className={validationResult.valid ? "statusGood" : "statusBad"}>{validationResult.message}</p>}
+                {!offline && providers.some((item) => item.value === "offline") && <button type="button" className="reviewTextButton demoButton"
+                  onClick={() => chooseProvider("offline")}>Try the offline demo · no key needed</button>}
               </div>
-              {validationResult ? (
-                <p className={validationResult.valid ? "statusGood" : "statusBad"}>
-                  {validationResult.valid ? "Connected: " : "Failed: "}
-                  {validationResult.message}
-                </p>
-              ) : null}
-            </div>
-
-            <label className="field">
-              <span>Provider Base URL</span>
-              <input
-                value={baseUrl}
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder={selectedProvider?.base_url ?? "Optional custom chat-completions endpoint"}
-              />
-            </label>
-
-            <div className="dualField">
-              <label className="field">
-                <span>Quick Model</span>
-                <select
-                  value={quickModel}
-                  onChange={(event) => setQuickModel(event.target.value)}
-                  disabled={!selectedProvider}
-                >
-                  {selectedProvider?.quick_models.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {quickNeedsCustom ? (
-                <label className="field">
-                  <span>Quick Model ID</span>
-                  <input
-                    value={quickCustom}
-                    onChange={(event) => setQuickCustom(event.target.value)}
-                    placeholder="Enter a custom quick model ID"
-                  />
-                </label>
-              ) : null}
-            </div>
-
-            <div className="dualField">
-              <label className="field">
-                <span>Deep Model</span>
-                <select
-                  value={deepModel}
-                  onChange={(event) => setDeepModel(event.target.value)}
-                  disabled={!selectedProvider}
-                >
-                  {selectedProvider?.deep_models.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {deepNeedsCustom ? (
-                <label className="field">
-                  <span>Deep Model ID</span>
-                  <input
-                    value={deepCustom}
-                    onChange={(event) => setDeepCustom(event.target.value)}
-                    placeholder="Enter a custom deep model ID"
-                  />
-                </label>
-              ) : null}
-            </div>
-
-            <div className="field">
-              <span>Analysts</span>
-              <div className="chipGrid">
-                {ANALYST_OPTIONS.map((option) => {
-                  const active = analysts.includes(option.value);
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={active ? "chipButton active" : "chipButton"}
-                      onClick={() => toggleAnalyst(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="tripleField">
-              <label className="field">
-                <span>Ticker</span>
-                <div className="inlineField">
-                  <input
-                    value={ticker}
-                    placeholder="AAPL or Apple"
-                    autoComplete="off"
-                    spellCheck={false}
-                    onChange={(event) => {
-                      setTicker(event.target.value);
-                      setTickerResolution(null);
-                      setTickerCandidates([]);
-                      setTickerError(null);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="secondaryButton"
-                    onClick={() => {
-                      void checkTicker(ticker);
-                    }}
-                    disabled={isCheckingTicker}
-                  >
-                    {isCheckingTicker ? "Checking..." : "Check Symbol"}
-                  </button>
-                </div>
-                {tickerResolution?.status === "RESOLVED" ? (
-                  <p className="statusGood tickerStatus">{resolutionStatusMessage(tickerResolution)}</p>
-                ) : null}
-                {tickerError ? <p className="statusBad tickerStatus">{tickerError}</p> : null}
-                {tickerCandidates.length > 0 ? (
-                  <div className="tickerPrompt">
-                    <p className="summaryLine tickerPromptTitle">Did you mean:</p>
-                    <div className="tickerPromptActions">
-                      {tickerCandidates.map((candidate) => (
-                        <button
-                          key={`${candidate.symbol}-${candidate.exchange ?? "na"}-${candidate.region ?? "na"}`}
-                          type="button"
-                          className="tickerPromptButton"
-                          onClick={() => {
-                            void handleTickerSelection(candidate);
-                          }}
-                        >
-                          <span>{formatCandidateLabel(candidate)}</span>
-                          {formatCandidateMeta(candidate) ? (
-                            <span className="tickerPromptMeta">{formatCandidateMeta(candidate)}</span>
-                          ) : null}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </label>
-              <label className="field">
-                <span>Analysis Date</span>
-                <input
-                  type="date"
-                  value={analysisDate}
-                  max={todayIso()}
-                  onChange={(event) => {
-                    setAnalysisDate(event.target.value);
-                    setTickerResolution(null);
-                    setTickerCandidates([]);
-                    setTickerError(null);
-                  }}
-                />
-              </label>
-              <label className="field">
-                <span>Output Language</span>
-                <select
-                  value={outputLanguage}
-                  onChange={(event) => setOutputLanguage(event.target.value)}
-                >
-                  {LANGUAGE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                  <option value="custom">Custom</option>
-                </select>
-              </label>
-            </div>
-
-            {languageNeedsCustom ? (
-              <label className="field">
-                <span>Custom Language</span>
-                <input
-                  value={customLanguage}
-                  onChange={(event) => setCustomLanguage(event.target.value)}
-                  placeholder="For example: Turkish or Vietnamese"
-                />
-              </label>
-            ) : null}
-
-            <label className="toggleField">
-              <input
-                type="checkbox"
-                checked={checkpointEnabled}
-                onChange={(event) => setCheckpointEnabled(event.target.checked)}
-              />
-              <span>
-                <strong>Resume with checkpoints</strong>
-                <small>Save graph progress so interrupted runs can resume.</small>
-              </span>
-            </label>
-
-            <button type="button" className="primaryButton" onClick={() => void startRun()} disabled={isRunning}>
-              {isRunning ? "Running..." : "Start Research"}
-            </button>
-
-            {error ? <p className="statusBad">{error}</p> : null}
-          </div>
+              <details className="advancedSettings"><summary>Advanced settings <small>Models, data and workflow</small></summary><div className="formGrid advancedBody">
+                <label className="field"><span>Quick model</span><select value={quickModel} onChange={(event) => editSetting("quickModel", event.target.value)} disabled={!selectedProvider}>
+                  {selectedProvider?.quick_models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  {selectedProvider?.supports_custom_models && !selectedProvider.quick_models.some((item) => item.value === "custom") && <option value="custom">Custom model</option>}</select></label>
+                {quickNeedsCustom && <label className="field"><span>Quick model ID</span><input value={quickCustom} required placeholder={selectedProvider?.custom_model_placeholder ?? "Custom model ID"}
+                  onChange={(event) => editSetting("quickCustom", event.target.value)} /></label>}
+                <label className="field"><span>Deep model</span><select value={deepModel} onChange={(event) => editSetting("deepModel", event.target.value)} disabled={!selectedProvider}>
+                  {selectedProvider?.deep_models.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                  {selectedProvider?.supports_custom_models && !selectedProvider.deep_models.some((item) => item.value === "custom") && <option value="custom">Custom model</option>}</select></label>
+                {deepNeedsCustom && <label className="field"><span>Deep model ID</span><input value={deepCustom} required placeholder={selectedProvider?.custom_model_placeholder ?? "Custom model ID"}
+                  onChange={(event) => editSetting("deepCustom", event.target.value)} /></label>}
+                {!offline && <label className="field"><span>Provider base URL</span><input value={baseUrl} autoComplete="off"
+                  placeholder={selectedProvider?.base_url ?? "Optional custom endpoint"} onChange={(event) => editSetting("baseUrl", event.target.value)} /></label>}
+                <fieldset className="analystField"><legend>Analysts</legend><div className="chipGrid">{ANALYST_OPTIONS.map((option) => <button key={option.value}
+                  type="button" aria-pressed={analysts.includes(option.value)} className={`chipButton ${analysts.includes(option.value) ? "active" : ""}`}
+                  onClick={() => toggleAnalyst(option.value)}>{option.label}</button>)}</div></fieldset>
+                <label className="field"><span>Research depth</span><select value={researchDepth} onChange={(event) => setResearchDepth(Number(event.target.value))}>
+                  {[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}{value === 1 ? " · Quickest" : value === 5 ? " · Most thorough" : ""}</option>)}</select>
+                  <small>More depth may increase time and model usage.</small></label>
+                <label className="toggleField"><input type="checkbox" checked={checkpointEnabled} onChange={(event) => setCheckpointEnabled(event.target.checked)} />
+                  <span><strong>Resume with checkpoints</strong><small>Save workflow progress for interrupted runs.</small></span></label>
+              </div></details>
+              <button type="submit" className="primaryButton startResearch" disabled={isRunning || reviewBusy || isLoadingProviders || !provider}>
+                {isRunning ? "Research in progress…" : offline ? "Start offline demo" : "Start research"}</button>
+              {error && <p className="statusBad" role="alert">{error}</p>}
+            </form>
+          </section>
+          <ReportHistory apiBaseUrl={API_BASE_URL} currentRunId={runId} reviewStatus={snapshot?.review?.status}
+            running={isRunning || reviewBusy} onOpenRun={openSavedRun} />
         </aside>
-
-        <section className="workspace">
-          <div className="panel statusPanel">
-            <div className="sectionHeader compact">
-              <div>
-                <p className="sectionKicker">Run Status</p>
-                <h2>{deferredSnapshot ? `${deferredSnapshot.ticker} · ${deferredSnapshot.analysis_date}` : "Ready"}</h2>
-              </div>
-              <div className="statusCluster">
-                <span className={`pill ${deferredSnapshot?.status ?? "queued"}`}>
-                  {prettyStatus(deferredSnapshot?.status ?? "queued")}
-                </span>
-                <span className="ghostPill">{runId ?? "No run yet"}</span>
-              </div>
-            </div>
-            <p className="summaryLine">{deferredSnapshot?.latest_update ?? "--"}</p>
-            {deferredSnapshot?.resolved_from ? (
-              <p className="summaryLine subtle">
-                Resolved: {deferredSnapshot.resolved_from} -&gt; {deferredSnapshot.ticker}
-                {deferredSnapshot.company_name ? ` — ${deferredSnapshot.company_name}` : ""}
-              </p>
-            ) : null}
-            <p className="summaryLine subtle">
-              Current Agent: {deferredSnapshot?.current_agent ?? "--"}
-            </p>
-          </div>
-
-          <HumanReviewPanel snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
-            onOpenRun={openSavedRun}
-            onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)}
-            onRevision={startRevision} />
-
-          <div className="dashboardGrid">
-            <section className="panel spanTwo">
-              <div className="sectionHeader compact">
-                <p className="sectionKicker">Agent Board</p>
-                <h3>Agent Progress</h3>
-              </div>
-              <div className="agentGrid">
-                {(deferredSnapshot?.agents ?? []).map((agent) => (
-                  <article key={agent.key} className="agentCard">
-                    <h4>{agent.label}</h4>
-                    <span className={`chip ${agent.status}`}>{prettyStatus(agent.status)}</span>
-                  </article>
-                ))}
-                {(deferredSnapshot?.agents ?? []).length === 0 ? (
-                  <p className="emptyState">No agents</p>
-                ) : null}
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="sectionHeader compact">
-                <div>
-                  <p className="sectionKicker">Final Call</p>
-                  <h3>{deferredSnapshot?.review?.status === "approved" ? "Reviewed Decision" : "Decision Draft"}</h3>
-                </div>
-                {deferredSnapshot?.final_decision ? (
-                  <div className="reportActions">
-                    <button
-                      type="button"
-                      className="secondaryButton exportButton"
-                      onClick={openHtmlReport}
-                    >
-                      Open Report
-                    </button>
-                    <button
-                      type="button"
-                      className="secondaryButton exportButton"
-                      onClick={exportPdfReport}
-                    >
-                      Export PDF
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {deferredSnapshot?.final_decision ? (
-                <div className="finalCall">
-                  <span className="signalBanner">
-                    {deferredSnapshot.final_signal ?? "Pending"}
-                  </span>
-                  <pre>{deferredSnapshot.final_decision}</pre>
-                </div>
-              ) : (
-                <p className="emptyState">Pending</p>
-              )}
-            </section>
-
-            <section className="panel">
-              <div className="sectionHeader compact">
-                <p className="sectionKicker">Tool Feed</p>
-                <h3>Tool Calls</h3>
-              </div>
-              <div className="feedList">
-                {(deferredSnapshot?.tool_calls ?? []).length === 0 ? (
-                  <p className="emptyState">No tools</p>
-                ) : (
-                  deferredSnapshot?.tool_calls
-                    .slice()
-                    .reverse()
-                    .map((tool, index) => (
-                      <article
-                        key={
-                          tool.id ??
-                          `${tool.timestamp}-${tool.name}-${tool.args.slice(0, 24)}-${index}`
-                        }
-                        className="feedCard"
-                      >
-                        <div className="feedMeta">
-                          <span>{tool.timestamp}</span>
-                          <span>{tool.name}</span>
-                        </div>
-                        <pre>{tool.args}</pre>
-                      </article>
-                    ))
-                )}
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="sectionHeader compact">
-                <p className="sectionKicker">Agent Feed</p>
-                <h3>Messages</h3>
-              </div>
-              <div className="feedList">
-                {(deferredSnapshot?.messages ?? []).length === 0 ? (
-                  <p className="emptyState">No messages</p>
-                ) : (
-                  deferredSnapshot?.messages
-                    .slice()
-                    .reverse()
-                    .map((message, index) => (
-                      <article
-                        key={
-                          message.id ??
-                          `${message.timestamp}-${message.kind}-${message.content.slice(0, 24)}-${index}`
-                        }
-                        className="feedCard"
-                      >
-                        <div className="feedMeta">
-                          <span>{message.timestamp}</span>
-                          <span>{message.kind}</span>
-                        </div>
-                        <pre>{message.content}</pre>
-                      </article>
-                    ))
-                )}
-              </div>
-            </section>
-
-            <section className="panel spanTwo">
-              <div className="sectionHeader compact">
-                <p className="sectionKicker">Research Dossier</p>
-                <h3>Stage Reports</h3>
-              </div>
-              <div className="reportGrid">
-                {(deferredSnapshot?.reports ?? []).filter((report) => report.content).length === 0 ? (
-                  <p className="emptyState">No reports</p>
-                ) : (
-                  deferredSnapshot?.reports
-                    .filter((report) => report.content)
-                    .map((report) => (
-                      <article key={report.key} className="reportCard">
-                        <header>{report.label}</header>
-                        <pre>{report.content}</pre>
-                      </article>
-                    ))
-                )}
-              </div>
-            </section>
-          </div>
+        <section className="workspace" aria-label="Research workspace">
+          <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
+            onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />
+          {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport} />}
+          {hasResult && <HumanReviewPanel key={snapshot?.run_id} snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
+            onOpenRun={openSavedRun} onBusyChange={setReviewBusy} onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)} onRevision={(run) => { if (activeRunRef.current === snapshot?.run_id) startRevision(run); }} />}
+          {!snapshot && !isRunning && <section className="panel welcomePanel"><p className="sectionKicker">Your research workspace</p><h2>From a question to a reviewed report.</h2>
+            <p>Start with a company. MarketMind gathers evidence, builds an analysis and checks its reasoning. You review the result before accepting a decision.</p>
+            <ol><li><strong>Set the question</strong><span>Choose a company, date and language.</span></li><li><strong>Read the evidence</strong><span>See the conclusion, risks and gaps together.</span></li>
+              <li><strong>Make the call</strong><span>Approve, request changes or reject this version.</span></li></ol></section>}
+          {(reportSnapshot?.reports ?? []).some((report) => report.content) && <details className="panel stagePanel"><summary>Stage reports <span>Read the research behind the summary</span></summary>
+            <div className="stageReports">{reportSnapshot?.reports.filter((report) => report.content).map((report) => <details className="stageReport" key={report.key}>
+              <summary>{report.label}</summary><ReportText text={report.content!} evidenceIds={evidenceIds} evidencePrefix={reportSnapshot.run_id} />
+              <details className="reportExtra"><summary>View raw text</summary><pre className="rawOutput">{report.content}</pre></details></details>)}</div></details>}
+          {snapshot && <details className="panel executionPanel"><summary>Execution details <span>Agents, tool calls and messages</span></summary>
+            <div className="agentGrid">{snapshot.agents.map((agent) => <article key={agent.key} className="agentCard"><h4>{agent.label}</h4>
+              <span className={`chip ${agent.status}`}>{prettyStatus(agent.status)}</span></article>)}</div>
+            <details className="reportExtra"><summary>Tool calls ({snapshot.tool_calls.length})</summary><div className="feedList">{snapshot.tool_calls.slice().reverse().map((tool, i) =>
+              <article className="feedCard" key={tool.id ?? i}><div className="feedMeta"><span>{tool.timestamp}</span><strong>{tool.name}</strong></div><pre>{tool.args}</pre></article>)}</div></details>
+            <details className="reportExtra"><summary>Messages ({snapshot.messages.length})</summary><div className="feedList">{snapshot.messages.slice().reverse().map((message, i) =>
+              <article className="feedCard" key={message.id ?? i}><div className="feedMeta"><span>{message.timestamp}</span><strong>{message.kind}</strong></div><pre>{message.content}</pre></article>)}</div></details>
+            <p className="summaryLine subtle">Run {snapshot.run_id} · {snapshot.provider} · {snapshot.quick_model} / {snapshot.deep_model}</p>
+          </details>}
         </section>
-      </section>
+      </div>
     </main>
   );
 }

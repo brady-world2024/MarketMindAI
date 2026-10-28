@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 import pytest
@@ -81,14 +82,77 @@ def test_review_validation(draft, decision, reviewer, comment):
     assert response.status_code == 422
 
 
-def test_competing_reviewers_only_one_wins(draft):
-    graph, snapshot, client = draft
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        responses = list(pool.map(lambda decision: client.post("/runs/review-test/review", json=review_payload(snapshot, decision)), ["approve", "reject"]))
-    assert sorted(response.status_code for response in responses) == [200, 409]
-    final = client.get("/runs/review-test/result").json()
+@pytest.mark.parametrize("decisions", [
+    ("approve", "reject"),
+    ("approve", "request_changes"),
+    ("reject", "request_changes"),
+    ("approve", "reject", "request_changes"),
+])
+def test_competing_reviewers_only_one_wins(draft, decisions):
+    graph, snapshot, _ = draft
+    clients = [TestClient(create_app(str(graph.paths.root))) for _ in decisions]
+    for client in clients:
+        assert client.get("/runs/review-test/result").json() == snapshot
+    ready = Barrier(len(decisions))
+    bodies = [review_payload(snapshot, decision, reviewer=f"Reviewer {index}")
+              for index, decision in enumerate(decisions)]
+
+    def submit(index):
+        # Independent app instances share only the real SQLite store.
+        ready.wait(timeout=5)
+        return clients[index].post("/runs/review-test/review", json=bodies[index])
+
+    with ThreadPoolExecutor(max_workers=len(decisions)) as pool:
+        futures = [pool.submit(submit, index) for index in range(len(decisions))]
+        responses = [future.result(timeout=10) for future in futures]
+
+    assert sorted(response.status_code for response in responses) == [200] + [409] * (len(decisions) - 1)
+    winner = next(index for index, response in enumerate(responses) if response.status_code == 200)
+    accepted = responses[winner].json()
+    final = TestClient(create_app(str(graph.paths.root))).get("/runs/review-test/result").json()
+    assert final == accepted
+    assert final["review"]["status"] == {
+        "approve": "approved", "reject": "rejected", "request_changes": "changes_requested",
+    }[bodies[winner]["decision"]]
     assert len(final["review"]["history"]) == 1
-    assert len(graph.memory_log.load_entries()) == (1 if final["review"]["status"] == "approved" else 0)
+    audit = final["review"]["history"][0]
+    for field in ("decision", "reviewer", "comment", "version", "report_hash"):
+        assert audit[field] == bodies[winner][field]
+    assert audit["reviewed_at"]
+    expected_memories = 1 if bodies[winner]["decision"] == "approve" else 0
+    assert len(graph.memory_log.load_entries()) == expected_memories
+    assert len(graph.journal.recall("NVDA")) == expected_memories
+    with graph.reviews.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM approved_memories WHERE run_id=?", (snapshot["run_id"],)).fetchone()[0] == expected_memories
+
+
+def test_separate_same_day_reports_can_both_be_approved_without_overwriting(draft):
+    graph, first, client = draft
+    second = graph.reviews.save_draft({
+        **first, "run_id": "independent-same-day-report",
+        "final_decision": first["final_decision"] + "\nA separate thesis for the same company and date.",
+    }, request(), {})
+    assert first["ticker"] == second["ticker"] == "NVDA"
+    assert first["analysis_date"] == second["analysis_date"]
+    # Independent research starts its own version chain, even for the same day.
+    assert first["review"]["version"] == second["review"]["version"] == 1
+    for report in (first, second):
+        response = client.post(f"/runs/{report['run_id']}/review", json=review_payload(report))
+        assert response.status_code == 200
+        assert response.json()["review"]["status"] == "approved"
+        assert len(response.json()["review"]["history"]) == 1
+
+    restored = TestClient(create_app(str(graph.paths.root)))
+    for report in (first, second):
+        saved = restored.get(f"/runs/{report['run_id']}/result").json()
+        assert saved["final_decision"] == report["final_decision"]
+        assert saved["review"]["status"] == "approved"
+        assert len(saved["review"]["history"]) == 1
+    entries = {entry["run_id"]: entry for entry in graph.memory_log.load_entries()}
+    assert set(entries) == {first["run_id"], second["run_id"]}
+    assert entries[first["run_id"]]["decision"] == first["final_decision"]
+    assert entries[second["run_id"]]["decision"] == second["final_decision"]
+    assert len(graph.journal.recall("NVDA")) == 2
 
 
 def test_revision_links_feedback_fresh_checks_and_survives_restart(draft):

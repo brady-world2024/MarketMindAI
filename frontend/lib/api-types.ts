@@ -100,6 +100,13 @@ export type RunSnapshot = {
   final_decision?: string | null;
   final_structured_decision?: {
     decision_status?: string;
+    executive_summary?: string;
+    investment_thesis?: string;
+    confidence?: number;
+    confidence_rationale?: string;
+    core_claims?: { claim: string; evidence_ids?: string[]; support_level?: string }[];
+    price_target?: number | null;
+    time_horizon?: string | null;
     key_risks?: string[];
     evidence_gap?: string;
     counterargument?: string;
