@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "MarketMind AI Research Console",
-  description: "A Next.js frontend for orchestrating MarketMind AI stock research runs.",
+  title: "MarketMind AI · Research desk",
+  description: "Research a company, follow the evidence, and review the decision in your MarketMind workspace.",
 };
 
 export default function RootLayout({
