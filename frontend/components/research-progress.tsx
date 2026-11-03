@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { RunSnapshot } from "../lib/api-types";
 import { elapsedTime, RESEARCH_PHASES, researchPhase } from "../lib/research-view";
+import { WorkbenchIcon } from "./workbench-icon";
 
 export type StreamState = "idle" | "connecting" | "live" | "reconnecting" | "disconnected" | "finished";
 
@@ -21,7 +22,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect }
   return <section className="panel progressPanel" aria-labelledby="progress-title">
     <div className="sectionHeader compact"><div><p className="sectionKicker">Research progress</p>
       <h2 id="progress-title">{running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
-      <span className="elapsedTime">{elapsedTime(snapshot, now)}</span></div>
+      <span className="elapsedTime"><WorkbenchIcon name="clock" size={14} />{elapsedTime(snapshot, now)}</span></div>
     <ol className="phaseSteps" aria-label="Research stages">{RESEARCH_PHASES.map((label, index) => <li key={label}
       className={`${index < phase.index || reviewComplete && index === 4 ? "done" : ""} ${index === phase.index && !reviewComplete ? "current" : ""} ${phase.failed && index === phase.index ? "failed" : ""}`}
       aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>

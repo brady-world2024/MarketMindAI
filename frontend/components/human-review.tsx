@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReviewDecision, RunCreatedResponse, RunSnapshot } from "../lib/api-types";
+import { WorkbenchIcon } from "./workbench-icon";
 
 const STATUS_LABELS = {
   pending: "Awaiting human review",
@@ -123,7 +124,7 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
   return (
     <section className="panel reviewPanel" aria-labelledby="review-title">
       <div className="sectionHeader compact">
-        <div><p className="sectionKicker">Human review</p><h2 id="review-title">Review this report</h2></div>
+        <div><p className="sectionKicker">Human review</p><h2 id="review-title"><WorkbenchIcon name="review" size={19} />Review this report</h2></div>
         {review && <span className={`reviewBadge ${review.status}`}>{STATUS_LABELS[review.status]}</span>}
       </div>
       {!review ? <><p className="emptyState">{snapshot?.status === "running" ? "Review becomes available when analysis and validation finish."

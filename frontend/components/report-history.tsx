@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReviewSummary } from "../lib/api-types";
 import { filterReviews } from "../lib/research-view";
+import { WorkbenchIcon } from "./workbench-icon";
 
 const FILTERS = [
   ["all", "All reports"], ["pending", "Awaiting review"], ["approved", "Approved"],
@@ -50,23 +51,25 @@ export function ReportHistory({ apiBaseUrl, currentRunId, reviewStatus, running,
 
   const filtered = filterReviews(items, status, query);
   return <section className="panel historyPanel" aria-labelledby="history-title">
-    <div className="sectionHeader compact"><div><p className="sectionKicker">Your research</p><h2 id="history-title">Saved reports</h2></div>
-      <button type="button" className="secondaryButton compactButton" disabled={loading} onClick={() => void loadReports()}>{loading ? "Loading…" : "Refresh"}</button></div>
+    <div className="sectionHeader compact"><h2 id="history-title"><WorkbenchIcon name="library" size={16} />Saved reports</h2>
+      <button type="button" className="iconButton" disabled={loading} aria-label="Refresh saved reports" title="Refresh saved reports"
+        onClick={() => void loadReports()}><WorkbenchIcon name="refresh" size={15} /></button></div>
     <label className="field"><span className="visuallyHidden">Search saved reports</span>
-      <input type="search" placeholder="Search company, ticker or date" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-    <div className="historyFilters" role="group" aria-label="Filter reports by review status">{FILTERS.map(([value, label]) =>
-      <button key={value} type="button" aria-pressed={status === value} className={status === value ? "active" : ""}
-        onClick={() => setStatus(value)}>{label}</button>)}</div>
+      <input type="search" placeholder="Search ticker or date" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+    <label className="historyFilter"><span className="visuallyHidden">Filter reports by review status</span>
+      <select value={status} onChange={(event) => setStatus(event.target.value)}>{FILTERS.map(([value, label]) =>
+        <option key={value} value={value}>{label}</option>)}</select></label>
     <p className="historyCount" aria-live="polite">{loading ? "Loading saved reports…" : `${filtered.length} of ${items.length} reports`}</p>
     {filtered.length ? <ul className="historyList">{filtered.map((item) => <li key={item.run_id}>
       <button className={`historyItem ${item.run_id === currentRunId ? "selected" : ""}`} type="button"
         disabled={running || opening !== null} aria-current={item.run_id === currentRunId ? "true" : undefined}
         title={`Run ${item.run_id}`} onClick={() => void openReport(item.run_id)}>
-        <div><strong>{item.ticker}</strong><span>{item.analysis_date} · Version {item.review.version}</span>
-          <small>{item.review.parent_run_id ? "Revised report · " : ""}{new Date(item.review.requested_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small></div>
+        <div><div className="historyItemHeading"><strong>{item.ticker}</strong><small>v{item.review.version}</small></div><span>{item.analysis_date}</span>
+          {item.review.parent_run_id && <small>Revised report</small>}</div>
         <span className={`reviewBadge ${item.review.status}`}>{opening === item.run_id ? "Opening…" : LABELS[item.review.status]}</span>
       </button>
-    </li>)}</ul> : !loading && <p className="emptyState">{items.length ? "No reports match these filters. Try another search or review status." : "Your completed research will appear here, ready to reopen and review."}</p>}
+    </li>)}</ul> : !loading && !error && <div className="historyEmpty"><WorkbenchIcon name="document" size={24} /><strong>{items.length ? "No matching reports" : "A fresh start"}</strong>
+      <p>{items.length ? "Try another ticker, date or review status." : "Completed research will appear here. Reopen it anytime to read and review."}</p></div>}
     {running && <p className="summaryLine subtle">Finish the current run before opening another report.</p>}
     {error && <p className="statusBad" role="alert">{error}</p>}
   </section>;

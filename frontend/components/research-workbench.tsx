@@ -24,6 +24,8 @@ import { ResearchReport } from "./research-report";
 import { ResearchProgress, type StreamState } from "./research-progress";
 import { ReportText } from "./report-text";
 import { ReportHistory } from "./report-history";
+import { WorkbenchIcon } from "./workbench-icon";
+import { researchPhase } from "../lib/research-view";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -320,6 +322,7 @@ export function ResearchWorkbench() {
   const [researchDepth, setResearchDepth] = useState(1);
   const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const loadGeneration = useRef(0);
@@ -329,6 +332,15 @@ export function ResearchWorkbench() {
   const deferredSnapshot = useDeferredValue(snapshot);
   const activeRunRef = useRef(runId);
   activeRunRef.current = runId;
+  const workspaceRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!runId) return;
+    workspaceRef.current?.focus({ preventScroll: true });
+    if (window.matchMedia("(max-width: 700px)").matches) {
+      workspaceRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    }
+  }, [runId]);
 
   const selectedProvider = useMemo(
     () => providers.find((item) => item.value === provider) ?? null,
@@ -694,13 +706,44 @@ export function ResearchWorkbench() {
   const offline = provider === "offline";
 
   return (
-    <main className="shell">
-      <header className="workbenchHeader"><div><p className="eyebrow">MarketMind AI</p>
-        <h1>Research with a clearer view.</h1></div><p>Follow the evidence. Review the decision.</p></header>
+    <div className="appShell">
+      <a className="skipLink" href="#research-workspace">Skip to research workspace</a>
+      <aside className="appSidebar" aria-label="Workspace navigation">
+        <a className="brand" href="#research-workspace" aria-label="MarketMind AI home">
+          <span className="brandMark"><WorkbenchIcon name="research" size={22} /></span>
+          <span>MarketMind<span className="brandSuffix">AI research</span></span>
+        </a>
+        <button className="sidebarToggle secondaryButton" type="button" aria-expanded={libraryOpen}
+          aria-controls="sidebar-content" onClick={() => setLibraryOpen(!libraryOpen)}>
+          <WorkbenchIcon name="library" /> {libraryOpen ? "Close library" : "Report library"}
+        </button>
+        <div id="sidebar-content" className={`sidebarContent ${libraryOpen ? "isOpen" : ""}`}>
+          <nav className="primaryNav" aria-label="Primary">
+            <p className="navLabel">Workspace</p>
+            <a href="#research-workspace" className="navItem active" aria-current="page" onClick={() => setLibraryOpen(false)}>
+              <WorkbenchIcon name="research" />Research desk<WorkbenchIcon name="chevron" size={14} />
+            </a>
+            <a href="#setup-title" className="navItem" onClick={() => setLibraryOpen(false)}>
+              <WorkbenchIcon name="settings" />Research settings
+            </a>
+          </nav>
+          <ReportHistory apiBaseUrl={API_BASE_URL} currentRunId={runId} reviewStatus={snapshot?.review?.status}
+            running={isRunning || reviewBusy} onOpenRun={async (id) => { await openSavedRun(id); setLibraryOpen(false); }} />
+          <div className="sidebarFooter"><WorkbenchIcon name="review" size={16} /><div><strong>Evidence before conviction</strong>
+            <p>Every report needs your review.</p></div></div>
+        </div>
+      </aside>
+      <main className="shell" id="research-workspace" tabIndex={-1}>
+      <header className="workbenchHeader"><div><p className="eyebrow">Research / Workspace</p>
+        <h1>Research desk<span className="headingDot">.</span></h1><p className="workspaceSubtitle">A company. The evidence. A considered decision.</p></div>
+        <div className={`workspaceStatus ${isRunning ? "isRunning" : ""}`}><span className="statusDot" />
+          {isRunning ? "Research in progress" : snapshot ? researchPhase(snapshot).label : "Ready for research"}
+        </div></header>
       <div className="layout workbenchLayout">
         <aside className="setupColumn">
           <section className="panel setupPanel" aria-labelledby="setup-title">
-            <div className="sectionHeader"><div><p className="sectionKicker">New research</p><h2 id="setup-title">What are you researching?</h2></div></div>
+            <div className="sectionHeader"><div><p className="sectionKicker">New research</p><h2 id="setup-title" tabIndex={-1}>Set your focus</h2></div>
+              <span className="panelIcon"><WorkbenchIcon name="settings" /></span></div>
             <form className="formGrid" onSubmit={(event) => { event.preventDefault(); void startRun(); }}>
               <label className="field"><span>Company or ticker</span><input value={ticker} required
                 placeholder="AAPL or Apple" autoComplete="off" spellCheck={false} onChange={(event) => {
@@ -719,7 +762,10 @@ export function ResearchWorkbench() {
                   {LANGUAGE_OPTIONS.map((item) => <option key={item}>{item}</option>)}<option value="custom">Custom</option></select></label></div>
               {languageNeedsCustom && <label className="field"><span>Custom language</span><input value={customLanguage} required
                 placeholder="For example: Turkish" onChange={(event) => setCustomLanguage(event.target.value)} /></label>}
-              <div className="providerSection"><label className="field"><span>AI provider</span><select value={provider}
+              <div className="providerSection"><div className="providerHeading"><span className="sectionKicker">Model connection</span>
+                <span className={`connectionState ${offline || validationResult?.valid ? "verified" : ""}`}>
+                  <span className="statusDot" />{offline ? "Demo mode" : validationResult?.valid ? "Verified" : "Not verified"}</span></div>
+                <label className="field"><span>AI provider</span><select value={provider}
                 onChange={(event) => chooseProvider(event.target.value)} disabled={isLoadingProviders}>
                 {isLoadingProviders && <option value="">Loading providers…</option>}
                 {providers.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
@@ -760,23 +806,32 @@ export function ResearchWorkbench() {
                   <span><strong>Resume with checkpoints</strong><small>Save workflow progress for interrupted runs.</small></span></label>
               </div></details>
               <button type="submit" className="primaryButton startResearch" disabled={isRunning || reviewBusy || isLoadingProviders || !provider}>
-                {isRunning ? "Research in progress…" : offline ? "Start offline demo" : "Start research"}</button>
+                {isRunning ? "Research in progress…" : offline ? "Start offline demo" : "Start research"}<WorkbenchIcon name="arrow" size={17} /></button>
+              <p className="setupFootnote"><WorkbenchIcon name="review" size={14} />You review every report before acceptance.</p>
               {error && <p className="statusBad" role="alert">{error}</p>}
             </form>
           </section>
-          <ReportHistory apiBaseUrl={API_BASE_URL} currentRunId={runId} reviewStatus={snapshot?.review?.status}
-            running={isRunning || reviewBusy} onOpenRun={openSavedRun} />
         </aside>
-        <section className="workspace" aria-label="Research workspace">
-          <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
-            onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />
+        <section className="workspace" aria-label="Research workspace" ref={workspaceRef} tabIndex={-1}>
+          {(snapshot || isRunning) && <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
+            onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
           {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport} />}
           {hasResult && <HumanReviewPanel key={snapshot?.run_id} snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
             onOpenRun={openSavedRun} onBusyChange={setReviewBusy} onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)} onRevision={(run) => { if (activeRunRef.current === snapshot?.run_id) startRevision(run); }} />}
-          {!snapshot && !isRunning && <section className="panel welcomePanel"><p className="sectionKicker">Your research workspace</p><h2>From a question to a reviewed report.</h2>
-            <p>Start with a company. MarketMind gathers evidence, builds an analysis and checks its reasoning. You review the result before accepting a decision.</p>
-            <ol><li><strong>Set the question</strong><span>Choose a company, date and language.</span></li><li><strong>Read the evidence</strong><span>See the conclusion, risks and gaps together.</span></li>
-              <li><strong>Make the call</strong><span>Approve, request changes or reject this version.</span></li></ol></section>}
+          {!snapshot && !isRunning && <>
+            <section className="panel welcomePanel" aria-labelledby="welcome-title">
+              <div className="welcomeMeta"><span className="sectionKicker">Your next research brief</span><span className="documentLabel"><WorkbenchIcon name="document" size={14} />Awaiting a company</span></div>
+              <div className="welcomeBody"><span className="welcomeEmblem"><WorkbenchIcon name="evidence" size={36} /></span>
+                <h2 id="welcome-title">Build a thesis.<br /><span>Keep the evidence.</span></h2>
+                <p>Bring a company into focus with market data, competing perspectives and a report you can review.</p>
+                <a href="#setup-title" className="welcomeLink">Set up your first research<WorkbenchIcon name="arrow" size={16} /></a>
+              </div>
+              <ol className="researchGuide"><li><span className="guideIcon"><WorkbenchIcon name="research" /></span><strong>Choose a company</strong><span>Set the date, language and model.</span></li>
+                <li><span className="guideIcon"><WorkbenchIcon name="evidence" /></span><strong>Follow the evidence</strong><span>Read the reasoning, risks and gaps.</span></li>
+                <li><span className="guideIcon"><WorkbenchIcon name="review" /></span><strong>Review the report</strong><span>Accept, request changes or reject.</span></li></ol>
+            </section>
+            <section className="workspaceNote"><WorkbenchIcon name="document" size={18} /><p><strong>Your report belongs here.</strong> Once research finishes, you’ll find the conclusion, supporting evidence and review actions in this workspace.</p></section>
+          </>}
           {(reportSnapshot?.reports ?? []).some((report) => report.content) && <details className="panel stagePanel"><summary>Stage reports <span>Read the research behind the summary</span></summary>
             <div className="stageReports">{reportSnapshot?.reports.filter((report) => report.content).map((report) => <details className="stageReport" key={report.key}>
               <summary>{report.label}</summary><ReportText text={report.content!} evidenceIds={evidenceIds} evidencePrefix={reportSnapshot.run_id} />
@@ -793,5 +848,6 @@ export function ResearchWorkbench() {
         </section>
       </div>
     </main>
+    </div>
   );
 }
