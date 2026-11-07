@@ -101,7 +101,7 @@ class SymbolResolutionApiTests(unittest.TestCase):
                 storage_root=Path(temp_dir),
                 config={"data_vendors": build_offline_data_vendor_config()},
             )
-            with patch.object(workflow.resolver, "resolve", lambda query, trade_date: _not_found(original_input=query)):
+            with patch.object(workflow.resolver, "resolve_identity", lambda query, trade_date: _not_found(original_input=query)):
                 with self.assertRaises(ValueError):
                     list(
                         workflow.stream(

@@ -43,7 +43,8 @@ def test_offline_web_symbol_resolution_ignores_prior_live_config(tmp_path, monke
     resolved = resolve_request_symbol(request, workflow)
     assert resolved.status == "RESOLVED"
     assert resolved.resolved_symbol == "NVDA"
-    assert get_config()["data_vendors"]["symbol_resolution"] == "offline"
+    # Per-request mode must not overwrite the process configuration.
+    assert get_config()["data_vendors"]["symbol_resolution"] == "yfinance"
     assert sum(call.call_count for call in remote_calls) == 0
 
 
@@ -61,4 +62,16 @@ def test_live_vendor_fallback_order_remains_available(isolated_data_config):
     set_config({"data_vendors": {"symbol_resolution": "yfinance"}})
     vendors = get_fallback_vendors("search_symbols")
     assert vendors[0] == "yfinance"
-    assert set(vendors) == set(VENDOR_METHODS["search_symbols"])
+    assert vendors == ["yfinance"]
+
+
+def test_demo_symbol_api_search_and_validation_never_call_remote(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from marketmind_ai.web.app import create_app
+    remote = block_remote_vendors(monkeypatch)
+    client = TestClient(create_app(str(tmp_path)))
+    response = client.get('/api/symbols/search', params={'query': 'NVDA', 'data_mode': 'demo'})
+    assert response.status_code == 200 and response.json()['candidates']
+    response = client.post('/api/symbols/resolve', json={'query': 'NVDA', 'analysis_date': '2026-06-12', 'data_mode': 'demo'})
+    assert response.status_code == 200 and response.json()['status'] == 'RESOLVED'
+    assert sum(call.call_count for call in remote) == 0

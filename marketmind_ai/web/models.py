@@ -111,6 +111,7 @@ class RunCreatedResponse(BaseModel):
 class ResolveSymbolRequest(BaseModel):
     query: str
     analysis_date: str
+    data_mode: Literal["live", "demo"] = "live"
 
     @field_validator("query")
     @classmethod
@@ -174,7 +175,7 @@ class SymbolSearchResponse(BaseModel):
 class AgentStatusView(BaseModel):
     key: str
     label: str
-    status: Literal["pending", "in_progress", "completed", "error"]
+    status: Literal["pending", "in_progress", "completed", "error", "skipped"]
 
 
 class MessageView(BaseModel):
@@ -199,6 +200,11 @@ class ReportSectionView(BaseModel):
 
 class RunSnapshot(BaseModel):
     run_id: str
+    data_mode: Literal["live", "demo", "unknown"] = "unknown"
+    data_availability: Optional[dict] = None
+    instrument_eligibility: Optional[dict] = None
+    source_attempts: list[dict] = Field(default_factory=list)
+    source_materials: list[dict] = Field(default_factory=list)
     status: Literal["queued", "running", "completed", "error"]
     original_input: str
     ticker: str

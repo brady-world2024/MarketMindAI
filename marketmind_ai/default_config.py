@@ -97,6 +97,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
     "data_vendors": {
+        "instrument_metadata": "sec",
         "core_stock_apis": "yfinance",
         "technical_indicators": "yfinance",
         "fundamental_data": "yfinance",

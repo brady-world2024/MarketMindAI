@@ -83,6 +83,10 @@ def _render_overview(snapshot, stats: RunStatistics):
     status.add_row("Ticker", str(snapshot.ticker))
     status.add_row("Date", str(snapshot.analysis_date))
     status.add_row("Provider", str(snapshot.provider))
+    status.add_row("Data mode", str(snapshot.data_mode))
+    if snapshot.data_availability:
+        status.add_row("Data availability", "Ready" if snapshot.data_availability.get('can_recommend') else
+                       'No AI analysis / 无法形成建议: ' + ', '.join(snapshot.data_availability.get('missing', [])))
     status.add_row("Models", f"{snapshot.quick_model} / {snapshot.deep_model}")
     status.add_row("Current Agent", str(snapshot.current_agent or "-"))
     status.add_row("Signal", str(snapshot.final_signal or "-"))

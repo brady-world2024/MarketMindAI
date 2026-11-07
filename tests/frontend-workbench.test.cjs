@@ -29,6 +29,35 @@ const provider = (value = 'openai') => ({ value, label: value, base_url: `https:
   quick_models: [{ value: 'quick-one', label: 'Quick one' }, { value: 'quick-two', label: 'Quick two' }],
   deep_models: [{ value: 'deep-one', label: 'Deep one' }] });
 
+test('partial reports clearly show no AI analysis, missing requirements, and retained source material', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { DataSourcesPanel } = loadModule('components/data-sources-panel.tsx');
+  const html = renderToStaticMarkup(React.createElement(DataSourcesPanel, { snapshot: {
+    data_mode: 'live', data_availability: { can_recommend: false, ai_analysis_performed: false,
+      missing: ['cashflow'], requirements: { cashflow: { required: true, available: false, reason_codes: ['provider_timeout'] } } },
+    source_attempts: [{ method: 'get_cashflow', provider: 'alpha_vantage', status: 'timeout' }],
+    source_materials: [{ method: 'get_balance_sheet', provider: 'yfinance', content: '<retained>' }],
+  } }));
+  assert.match(html, /No AI analysis/);
+  assert.match(html, /cashflow/);
+  assert.match(html, /alpha_vantage/);
+  assert.match(html, /&lt;retained&gt;/);
+  assert.doesNotMatch(html, /<retained>/);
+  const phase = loadModule('lib/research-view.ts').researchPhase({status: 'completed', data_availability: {can_recommend: false}});
+  assert.equal(phase.label, 'Data incomplete · No recommendation');
+  const legacy = renderToStaticMarkup(React.createElement(DataSourcesPanel, { snapshot: {} }));
+  assert.match(legacy, /Unknown/);
+});
+
+test('pre-rendered setup does not freeze the analysis date to the build day', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchWorkbench } = loadModule('components/research-workbench.tsx');
+  const html = renderToStaticMarkup(React.createElement(ResearchWorkbench));
+  assert.doesNotMatch(html, /type="date"[^>]*max="\d{4}-\d{2}-\d{2}"/);
+});
+
 function configured(api) {
   let state = api.providerSettingsReducer(api.initialProviderSettings, { type: 'select', provider: provider() });
   return api.providerSettingsReducer(state, { type: 'edit', field: 'apiKey', value: 'test-key' });

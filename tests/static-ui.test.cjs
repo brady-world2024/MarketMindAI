@@ -29,6 +29,21 @@ function app() {
   return { context, $, requests, sources, alerts };
 }
 
+test('source isolation is visible and retained materials are safely rendered', () => {
+  const { context, $ } = app();
+  context.renderSnapshot({ run_id: 'partial', status: 'completed', ticker: 'ABC', provider: 'openai',
+    data_mode: 'live', agents: [], reports: [], messages: [], tool_calls: [],
+    data_availability: { can_recommend: false, ai_analysis_performed: false, missing: ['cashflow'], requirements: {} },
+    source_attempts: [{method: 'get_cashflow', provider: 'yfinance', status: 'timeout'}],
+    source_materials: [{method: 'get_balance_sheet', provider: 'yfinance', content: '<material>'}],
+  });
+  assert.match($('sourceAvailability').innerHTML, /No AI analysis/);
+  assert.match($('sourceAvailability').innerHTML, /get_cashflow/);
+  assert.match($('sourceAvailability').innerHTML, /&lt;material&gt;/);
+  assert.match($('runPhase').textContent, /Data incomplete/);
+  assert.equal($('dataSourceBadge').textContent, 'live');
+});
+
 test('switching providers clears credentials and the previous connection result', () => {
   const { $, context } = app();
   $('apiKeyInput').value = 'previous-provider-secret'; $('providerStatus').textContent = 'Connected';

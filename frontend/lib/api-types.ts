@@ -48,7 +48,7 @@ export type ProviderOption = {
 export type AgentStatus = {
   key: string;
   label: string;
-  status: "pending" | "in_progress" | "completed" | "error";
+  status: "pending" | "in_progress" | "completed" | "error" | "skipped";
 };
 
 export type MessageView = {
@@ -72,6 +72,15 @@ export type ReportSection = {
 };
 
 export type RunSnapshot = {
+  data_mode?: "live" | "demo" | "unknown";
+  data_availability?: {
+    can_recommend: boolean; ai_analysis_performed: boolean; missing: string[]; reason_codes?: string[];
+    requirements: Record<string, { required: boolean; available: boolean; provider?: string | null;
+      reason_codes?: string[]; valid_count?: number; minimum_count?: number }>;
+  } | null;
+  instrument_eligibility?: {status: string; exchange?: string | null; security_type?: string | null; reason_codes?: string[]} | null;
+  source_attempts?: {method: string; provider: string; status: string; started_at?: string; finished_at?: string; message?: string | null}[];
+  source_materials?: {method: string; provider: string; retrieved_at?: string; content: unknown; source_url?: string | null}[];
   run_id: string;
   status: "queued" | "running" | "completed" | "error";
   original_input: string;
@@ -101,8 +110,8 @@ export type RunSnapshot = {
   final_structured_decision?: {
     decision_status?: string;
     executive_summary?: string;
-    investment_thesis?: string;
-    confidence?: number;
+    investment_thesis?: string | null;
+    confidence?: number | null;
     confidence_rationale?: string;
     core_claims?: { claim: string; evidence_ids?: string[]; support_level?: string }[];
     price_target?: number | null;
