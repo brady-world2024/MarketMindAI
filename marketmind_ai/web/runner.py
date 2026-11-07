@@ -19,6 +19,7 @@ def build_graph_config(request: AnalysisRequest) -> dict[str, Any]:
     if request.llm_provider not in supported_provider_values():
         raise ValueError(f"Unsupported provider for the web UI: {request.llm_provider}")
     config = {
+        "data_mode": "demo" if request.llm_provider.lower() == "offline" else "live",
         "llm_provider": request.llm_provider,
         "api_key": request.api_key,
         "quick_think_llm": request.quick_model,
@@ -46,7 +47,7 @@ def resolve_request_symbol(request: AnalysisRequest, workflow: MarketMindGraph |
         runtime = MarketMindGraph(config=build_graph_config(request))
     else:
         runtime = MarketMindGraph(storage_root=workflow.paths.root, config=build_graph_config(request))
-    return runtime.resolve_symbol(request.ticker, request.analysis_date)
+    return runtime.resolve_for_research(request.ticker, request.analysis_date)
 
 
 class SnapshotBuilder:

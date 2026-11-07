@@ -23,8 +23,11 @@ def _db_path(data_dir: str | Path, ticker: str) -> Path:
     return path / f"{safe}.db"
 
 
-def thread_id(ticker: str, date: str) -> str:
-    return hashlib.sha256(f"{ticker.upper()}:{date}".encode("utf-8")).hexdigest()[:16]
+def thread_id(ticker: str, date: str, *, namespace: str | None = None) -> str:
+    identity = f"{ticker.upper()}:{date}"
+    if namespace is not None:
+        identity += f":{namespace}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
 
 
 @contextmanager
@@ -39,26 +42,26 @@ def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver
         conn.close()
 
 
-def checkpoint_step(data_dir: str | Path, ticker: str, date: str) -> int | None:
+def checkpoint_step(data_dir: str | Path, ticker: str, date: str, *, namespace: str | None = None) -> int | None:
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return None
     with get_checkpointer(data_dir, ticker) as saver:
-        payload = saver.get_tuple({"configurable": {"thread_id": thread_id(ticker, date)}})
+        payload = saver.get_tuple({"configurable": {"thread_id": thread_id(ticker, date, namespace=namespace)}})
         if payload is None:
             return None
         return payload.metadata.get("step")
 
 
-def has_checkpoint(data_dir: str | Path, ticker: str, date: str) -> bool:
-    return checkpoint_step(data_dir, ticker, date) is not None
+def has_checkpoint(data_dir: str | Path, ticker: str, date: str, *, namespace: str | None = None) -> bool:
+    return checkpoint_step(data_dir, ticker, date, namespace=namespace) is not None
 
 
-def clear_checkpoint(data_dir: str | Path, ticker: str, date: str) -> None:
+def clear_checkpoint(data_dir: str | Path, ticker: str, date: str, *, namespace: str | None = None) -> None:
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return
-    tid = thread_id(ticker, date)
+    tid = thread_id(ticker, date, namespace=namespace)
     conn = sqlite3.connect(str(db))
     try:
         for table in ("writes", "checkpoints"):

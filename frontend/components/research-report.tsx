@@ -1,6 +1,7 @@
 import type { RunSnapshot } from "../lib/api-types";
 import { ReportText, revealEvidence } from "./report-text";
 import { WorkbenchIcon } from "./workbench-icon";
+import { DataSourcesPanel } from "./data-sources-panel";
 
 type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void };
 const REVIEW_LABELS = { pending: "Awaiting review", approved: "Approved", rejected: "Rejected", changes_requested: "Changes requested" };
@@ -26,10 +27,10 @@ export function ResearchReport({ snapshot, onOpenReport, onExport }: Props) {
       {snapshot.review && <span className="resultVersion">Version {snapshot.review.version}</span>}
     </div>
     <dl className="reportFacts"><div><dt>Analysis date</dt><dd>{snapshot.analysis_date ?? "—"}</dd></div>
-      <div><dt>AI provider</dt><dd>{snapshot.provider === "offline" ? "Offline demo" : snapshot.provider ?? "—"}</dd></div>
+      <div><dt>AI provider</dt><dd>{snapshot.data_availability?.ai_analysis_performed === false ? "Not called" : snapshot.provider === "offline" ? "Offline demo" : snapshot.provider ?? "—"}</dd></div>
       <div><dt>Evidence items</dt><dd>{snapshot.evidence_ledger?.length ?? 0}</dd></div>
       <div><dt>Language</dt><dd>{snapshot.output_language ?? "—"}</dd></div></dl>
-    {snapshot.provider === "offline" && <p className="offlineNotice">Demo report · Uses sample data and local rules.</p>}
+    <DataSourcesPanel snapshot={snapshot} />
     {decision?.executive_summary || decision?.investment_thesis
       ? <p className="resultSummary">{decision.executive_summary || decision.investment_thesis}</p>
       : <ReportText text={snapshot.final_decision ?? "No final summary is available."} evidenceIds={evidenceIds} evidencePrefix={snapshot.run_id} />}

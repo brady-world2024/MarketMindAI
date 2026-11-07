@@ -87,6 +87,7 @@ class ResolvedTicker(BaseModel):
     candidates: list[SymbolCandidate] = Field(default_factory=list)
     reason: Optional[str] = None
     validation: ValidationFlags = Field(default_factory=ValidationFlags)
+    source_attempts: list[dict] = Field(default_factory=list)
 
     def to_dict(self) -> dict:
         return self.model_dump(mode="json")

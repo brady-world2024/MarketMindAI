@@ -13,6 +13,10 @@ export function researchPhase(snapshot: Partial<RunSnapshot> | null) {
   if (snapshot?.status === "error") label = "Analysis failed";
   if (snapshot?.status === "completed") label = ({ pending: "Awaiting review", approved: "Approved",
     rejected: "Rejected", changes_requested: "Changes requested" })[snapshot.review?.status ?? "pending"];
+  if (snapshot?.data_availability?.can_recommend === false) {
+    index = 0;
+    label = "Data incomplete · No recommendation";
+  }
   return { index, label, failed: snapshot?.status === "error" };
 }
 

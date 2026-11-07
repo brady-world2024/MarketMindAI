@@ -23,6 +23,9 @@ def report_hash(snapshot: dict) -> str:
     keys = ("ticker", "analysis_date", "provider", "quick_model", "deep_model", "output_language",
             "selected_analysts", "final_signal", "final_decision", "final_structured_decision",
             "report_verification", "report_quality", "evidence_ledger", "reports")
+    # Preserve historical fingerprints; new reports bind all source evidence too.
+    keys += tuple(key for key in ("data_mode", "data_availability", "source_attempts", "source_materials",
+                                  "instrument_eligibility") if key in snapshot)
     payload = {key: snapshot.get(key) for key in keys}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
@@ -126,6 +129,7 @@ class ReviewStore:
             db.execute("UPDATE review_runs SET snapshot=? WHERE run_id=?", (json.dumps(snapshot), run_id))
             if decision == "approve":
                 entry = {"run_id": run_id, "date": snapshot["analysis_date"], "ticker": safe_ticker_component(snapshot["ticker"]),
+                         "data_mode": snapshot.get('data_mode', 'unknown'),
                          "rating": parse_rating(snapshot.get("final_decision") or ""), "pending": True,
                          "raw": None, "alpha": None, "holding_days": None,
                          "decision": snapshot.get("final_decision") or "", "reflection": ""}
@@ -141,6 +145,8 @@ class ReviewStore:
         text_status = parse_decision_status(snapshot.get("final_decision") or "").lower()
         if "no recommendation" in {status, signal, text_status}:
             return not (status == signal == text_status == "no recommendation")
+        if (snapshot.get("data_availability") or {}).get("can_recommend") is False:
+            return True
         verification = snapshot.get("report_verification") or {}
         from .runtime_support import GraphResearchEngine
         quality = snapshot.get("report_quality") or {}

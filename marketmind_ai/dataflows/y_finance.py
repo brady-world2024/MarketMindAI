@@ -15,6 +15,7 @@ except Exception:  # pragma: no cover - optional import failure path
 from ..agents.utils.research_types import FundamentalSnapshot, PriceBar
 from ..symbols import SymbolCandidate
 from .stockstats_utils import render_indicator_report
+from .results import InvalidSourceResponse, UnconfiguredSourceError, finite_number, valid_fiscal_period
 
 
 def _http_json(url: str, timeout: int = 15) -> dict:
@@ -204,42 +205,37 @@ def get_indicators(symbol: str, analysis_date: str, indicators: list[str] | None
 
 
 def _format_frame(title: str, frame) -> str:
-    if frame is None:
-        return f"No {title} data was returned."
-    if hasattr(frame, "empty") and frame.empty:
-        return f"No {title} data was returned."
-    rendered = str(frame.iloc[:, :3]) if hasattr(frame, "iloc") else str(frame)
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        raise InvalidSourceResponse("Financial statement contains no usable data.")
+    valid_columns = [column for column in frame.columns if valid_fiscal_period(column)]
+    if not valid_columns:
+        raise InvalidSourceResponse("Financial statement has no fiscal period.")
+    numeric_columns = [column for column in valid_columns if any(finite_number(cell) for cell in frame[column])]
+    if not numeric_columns:
+        raise InvalidSourceResponse("Financial statement has no finite numeric cells.")
+    usable = frame.loc[:, numeric_columns]
+    rendered = usable.iloc[:, :3].to_string(max_rows=None, max_cols=None)
     return f"{title}\n{rendered}"
 
 
-def get_balance_sheet(symbol: str) -> str:
+def _get_statement(symbol: str, title: str, attribute: str) -> str:
     if yf is None:
-        return "yfinance is not available."
-    try:
-        ticker = yf.Ticker(symbol.upper())
-        return _format_frame("Quarterly Balance Sheet", ticker.quarterly_balance_sheet)
-    except Exception:
-        return "Balance-sheet data could not be retrieved from Yahoo Finance."
+        raise UnconfiguredSourceError("The yfinance client is not available.")
+    # Preserve structural failure information for the routing boundary.
+    ticker = yf.Ticker(symbol.upper())
+    return _format_frame(title, getattr(ticker, attribute))
+
+
+def get_balance_sheet(symbol: str) -> str:
+    return _get_statement(symbol, "Quarterly Balance Sheet", "quarterly_balance_sheet")
 
 
 def get_cashflow(symbol: str) -> str:
-    if yf is None:
-        return "yfinance is not available."
-    try:
-        ticker = yf.Ticker(symbol.upper())
-        return _format_frame("Quarterly Cash Flow", ticker.quarterly_cashflow)
-    except Exception:
-        return "Cash-flow data could not be retrieved from Yahoo Finance."
+    return _get_statement(symbol, "Quarterly Cash Flow", "quarterly_cashflow")
 
 
 def get_income_statement(symbol: str) -> str:
-    if yf is None:
-        return "yfinance is not available."
-    try:
-        ticker = yf.Ticker(symbol.upper())
-        return _format_frame("Quarterly Income Statement", ticker.quarterly_income_stmt)
-    except Exception:
-        return "Income-statement data could not be retrieved from Yahoo Finance."
+    return _get_statement(symbol, "Quarterly Income Statement", "quarterly_income_stmt")
 
 
 def get_insider_transactions(symbol: str, analysis_date: str) -> str:

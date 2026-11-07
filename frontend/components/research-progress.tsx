@@ -19,13 +19,15 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect }
   const phase = researchPhase(snapshot);
   const reviewComplete = snapshot?.review?.status === "approved";
   const connectionInterrupted = streamState === "reconnecting" || streamState === "disconnected";
+  const noAnalysis = snapshot?.data_availability?.ai_analysis_performed === false
+    && snapshot?.data_availability?.can_recommend === false;
   return <section className="panel progressPanel" aria-labelledby="progress-title">
     <div className="sectionHeader compact"><div><p className="sectionKicker">Research progress</p>
       <h2 id="progress-title">{running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
       <span className="elapsedTime"><WorkbenchIcon name="clock" size={14} />{elapsedTime(snapshot, now)}</span></div>
-    <ol className="phaseSteps" aria-label="Research stages">{RESEARCH_PHASES.map((label, index) => <li key={label}
+    {noAnalysis ? <p className="offlineNotice">Preflight stopped · AI research stages skipped. 未进行 AI 分析。</p> : <ol className="phaseSteps" aria-label="Research stages">{RESEARCH_PHASES.map((label, index) => <li key={label}
       className={`${index < phase.index || reviewComplete && index === 4 ? "done" : ""} ${index === phase.index && !reviewComplete ? "current" : ""} ${phase.failed && index === phase.index ? "failed" : ""}`}
-      aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>
+      aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>}
     <p className="summaryLine" role="status">{snapshot?.latest_update ?? (running ? "Checking input and starting the workflow…" : "Choose a company and start a research run.")}</p>
     {snapshot?.provider === "offline" && <p className="offlineNotice">Offline demo · Uses sample data and local rules. No paid model calls.</p>}
     {connectionInterrupted && <div className="connectionNotice" role="status"><div><strong>{streamState === "reconnecting" ? "Reconnecting to progress updates" : "Progress connection closed"}</strong>

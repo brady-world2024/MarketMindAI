@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, RemoveMessage
 
-from ...dataflows.interface import get_vendor, route_to_vendor
+from ...dataflows.interface import fetch_from_vendors, route_to_vendor
 from ...symbols import SymbolResolution, ValidationFlags
 from .core_stock_tools import build_core_stock_tools
 from .fundamental_data_tools import build_fundamental_data_tools
 from .news_data_tools import build_news_data_tools
-from .research_types import IndicatorSet, MarketSnapshot, ResearchBundle
+from .research_types import FundamentalSnapshot, IndicatorSet, MarketSnapshot, ResearchBundle
 from .technical_indicators_tools import build_technical_indicator_tools
 
 if TYPE_CHECKING:
@@ -187,17 +187,17 @@ def score_bundle(bundle: ResearchBundle) -> Dict[str, float]:
 
     fundamentals = 0.0
     f = bundle.fundamentals
-    if (f.revenue_growth or 0.0) > 0.12:
+    if f.revenue_growth is not None and f.revenue_growth > 0.12:
         fundamentals += 16
-    elif (f.revenue_growth or 0.0) < 0:
+    elif f.revenue_growth is not None and f.revenue_growth < 0:
         fundamentals -= 10
-    if (f.operating_margin or 0.0) > 0.18:
+    if f.operating_margin is not None and f.operating_margin > 0.18:
         fundamentals += 10
-    elif (f.operating_margin or 0.0) < 0.08:
+    elif f.operating_margin is not None and f.operating_margin < 0.08:
         fundamentals -= 6
-    if (f.debt_to_equity or 0.0) < 0.8:
+    if f.debt_to_equity is not None and f.debt_to_equity < 0.8:
         fundamentals += 8
-    elif (f.debt_to_equity or 0.0) > 1.8:
+    elif f.debt_to_equity is not None and f.debt_to_equity > 1.8:
         fundamentals -= 10
     if (f.trailing_pe or 0.0) > 45:
         fundamentals -= 7
@@ -222,10 +222,17 @@ class AnalysisContext:
         upper = symbol.upper()
         if upper in self.bundle_cache:
             return self.bundle_cache[upper]
-        bars = route_to_vendor("get_price_history", upper, self.analysis_date, 180)
+        from ...dataflows.preflight import validate_daily_bars
+        price = fetch_from_vendors("get_price_history", upper, self.analysis_date, 180)
+        bars, reasons = validate_daily_bars(price.value, self.analysis_date)
+        if len(bars) < 50 or 'conflicting_price_dates' in reasons:
+            raise ValueError('Required valid price history is unavailable.')
         market = compute_market_snapshot(bars)
-        fundamentals = route_to_vendor("get_fundamentals", upper)
-        news = route_to_vendor("get_news", upper, self.analysis_date, 8)
+        overview = fetch_from_vendors("get_fundamentals", upper)
+        fundamentals = overview.value if overview.available else FundamentalSnapshot(
+            company_name=(resolution or {}).get('company_name') or upper)
+        headlines = fetch_from_vendors("get_news", upper, self.analysis_date, 8)
+        news = headlines.value if headlines.available else []
         sentiment = sentiment_from_headlines(news)
         memory = self.journal.recall(upper, 5)
         resolution_payload = resolution or {
@@ -253,7 +260,7 @@ class AnalysisContext:
             news=news,
             memory=memory,
             sentiment_score=sentiment,
-            data_source=get_vendor("core_stock_apis").split(",")[0].strip() or "unknown",
+            data_source=price.provider or "unknown",
         )
         self.bundle_cache[upper] = bundle
         return bundle

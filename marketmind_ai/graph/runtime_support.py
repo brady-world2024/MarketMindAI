@@ -48,6 +48,7 @@ from .storage import DecisionJournal
 
 def build_offline_data_vendor_config() -> dict[str, str]:
     return {
+        "instrument_metadata": "offline",
         "core_stock_apis": "offline",
         "technical_indicators": "offline",
         "fundamental_data": "offline",
@@ -76,10 +77,12 @@ class AutonomousRuntime:
         return score_bundle(self.bundle())
 
     def evidence_pack(self) -> list[EvidenceItem]:
+        from ..dataflows.config import get_audit
+        from ..dataflows.results import utc_now
         bundle = self.bundle()
         scores = self.scores()
         symbol = self.resolution["resolved_symbol"]
-        retrieved_at = f"{self.request.analysis_date}T00:00:00Z"
+        retrieved_at = utc_now().isoformat()
         latest_bar_date = bundle.market.bars[-1].date
         news_item = bundle.news[0] if bundle.news else None
         news_date = news_item.published_at if news_item else latest_bar_date
@@ -88,7 +91,7 @@ class AutonomousRuntime:
             if news_item and news_item.url
             else f"marketmind://{bundle.data_source}/{symbol}/news/{news_date}/1"
         )
-        return [
+        items = [
             EvidenceItem(
                 claim=f"20-session price change is {bundle.market.change_20d_pct:.1f}% and the tape score is {scores['market']:.1f}.",
                 evidence_type=EvidenceKind.FACT,
@@ -118,11 +121,11 @@ class AutonomousRuntime:
                 raw_source_id=f"{symbol}:news:{news_date}:1",
             ),
             EvidenceItem(
-                claim=f"Business quality reflects revenue growth {bundle.fundamentals.revenue_growth or 0:.2f} and operating margin {bundle.fundamentals.operating_margin or 0:.2f}.",
+                claim=f"Business quality reflects revenue growth {bundle.fundamentals.revenue_growth} and operating margin {bundle.fundamentals.operating_margin}.",
                 evidence_type=EvidenceKind.FACT,
                 source="Fundamentals Analyst",
                 source_date=latest_bar_date,
-                excerpt=f"Debt/Equity={bundle.fundamentals.debt_to_equity or 0:.2f}, P/E={bundle.fundamentals.trailing_pe or 0:.1f}",
+                excerpt=f"Debt/Equity={bundle.fundamentals.debt_to_equity}, P/E={bundle.fundamentals.trailing_pe}",
                 interpretation="Growth durability and balance-sheet resilience constrain how much risk the setup deserves.",
                 strength=EvidenceStrength.HIGH if scores["fundamentals"] > 6 else EvidenceStrength.MEDIUM,
                 provider=bundle.data_source,
@@ -132,6 +135,20 @@ class AutonomousRuntime:
                 raw_source_id=f"{symbol}:fundamentals:{latest_bar_date}",
             ),
         ]
+        if not bundle.news:
+            items = [item for item in items if item.source_type != 'news']
+        if all(getattr(bundle.fundamentals, key) is None for key in
+               ('revenue_growth', 'operating_margin', 'debt_to_equity', 'trailing_pe')):
+            items = [item for item in items if item.source_type != 'fundamentals']
+        audit = get_audit()
+        methods = {'price': 'get_price_history', 'news': 'get_news', 'fundamentals': 'get_fundamentals'}
+        for item in items:
+            material = next((m for m in reversed(audit.materials) if m.method == methods[item.source_type]), None) if audit else None
+            if material:
+                item.provider = material.provider
+                item.retrieved_at = material.retrieved_at.isoformat()
+                item.url = item.url.replace(f'//{bundle.data_source}/', f'//{material.provider}/')
+        return items
 
     def memory_context(self, audience: str) -> str:
         bundle = self.bundle()

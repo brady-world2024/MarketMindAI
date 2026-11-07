@@ -46,6 +46,17 @@ class CheckpointResumeTests(unittest.TestCase):
         self.ticker = "NVDA"
         self.date = "2026-06-12"
 
+    def test_run_and_source_namespaces_never_resume_legacy_or_other_modes(self):
+        graph = build_graph()
+        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+            graph.compile(checkpointer=saver).invoke({'count': 0}, config={
+                'configurable': {'thread_id': thread_id(self.ticker, self.date)}})
+        self.assertFalse(has_checkpoint(self.tmpdir, self.ticker, self.date, namespace='live:run-a'))
+        self.assertNotEqual(thread_id(self.ticker, self.date, namespace='demo:run-a'),
+                            thread_id(self.ticker, self.date, namespace='live:run-a'))
+        self.assertNotEqual(thread_id(self.ticker, self.date, namespace='live:run-a'),
+                            thread_id(self.ticker, self.date, namespace='live:run-b'))
+
     def test_crash_then_resume(self):
         global _should_crash
         builder = build_graph()

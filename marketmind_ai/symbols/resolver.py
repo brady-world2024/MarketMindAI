@@ -9,6 +9,8 @@ from typing import Iterable, Optional
 
 from ..dataflows.interface import collect_from_vendors, get_fallback_vendors, invoke_vendor_method
 from ..dataflows.utils import safe_ticker_component
+from ..dataflows.market_identity import normalize_exchange, normalize_region
+from ..dataflows.results import DataUnavailableError
 from .models import (
     FundamentalValidationResult,
     PriceValidationResult,
@@ -127,6 +129,52 @@ def format_resolution_message(resolved: ResolvedTicker) -> str:
 class SymbolResolver:
     def __init__(self, provider: object | None = None) -> None:
         self.provider = provider
+
+    def resolve_identity(self, raw_input: str, trade_date: str, *, limit: int = 8) -> ResolvedTicker:
+        """Resolve identity without treating missing research data as an unknown ticker."""
+        normalized = _normalize_query(raw_input)
+        try:
+            candidates = self.search_symbols(normalized, limit=limit)
+        except DataUnavailableError as exc:
+            attempts = [attempt.to_dict() for attempt in exc.result.attempts]
+            detail = '; '.join(f"{item['provider']}: {item['status']}" for item in attempts)
+            return ResolvedTicker(status=ResolveStatus.INSUFFICIENT_DATA, original_input=raw_input,
+                normalized_query=normalized, reason=f'Symbol identity could not be verified. Sources unavailable: {detail}',
+                source_attempts=attempts)
+        ranked = sorted(candidates, key=lambda item: self._score_candidate(normalized, item)[0], reverse=True)
+        exact = [item for item in ranked if item.symbol.upper() == normalized.upper()]
+        names = [item for item in ranked if _normalize_for_name_match(item.name) == _normalize_for_name_match(normalized)]
+        choices = exact or names or ranked
+        if not choices:
+            return ResolvedTicker(status=ResolveStatus.NOT_FOUND, original_input=raw_input, normalized_query=normalized,
+                                  reason='No matching symbols were returned by the configured sources.')
+        # Different listings of the same company require explicit selection.
+        listings = {}
+        for item in choices:
+            venues, regions = listings.setdefault(item.symbol.upper(), (set(), set()))
+            region = normalize_region(item.region)
+            # Yahoo's existing adapter can put exchangeDisp in region. A
+            # controlled US venue alias is not a second country of listing.
+            if normalize_exchange(item.region) in {'NASDAQ', 'NYSE'}:
+                region = 'US'
+            venue = normalize_exchange(item.exchange)
+            if region:
+                regions.add(region)
+            # Some sources populate exchange with a country; missing venue
+            # evidence does not create a second listing of an exact ticker.
+            if venue and normalize_region(venue) not in {region, 'US'}:
+                venues.add(venue)
+        listing_count = sum(max(1, len(venues), len(regions)) for venues, regions in listings.values())
+        ambiguous = listing_count > 1 and (bool(exact or names) or abs(
+            self._score_candidate(normalized, choices[0])[0] - self._score_candidate(normalized, choices[1])[0]) < 8)
+        if ambiguous:
+            return ResolvedTicker(status=ResolveStatus.AMBIGUOUS, original_input=raw_input, normalized_query=normalized,
+                                  candidates=ranked[:5], reason='Multiple listings match. Select the exact ticker before research.')
+        target = choices[0]
+        return ResolvedTicker(status=ResolveStatus.RESOLVED, original_input=raw_input, normalized_query=normalized,
+                              resolved_symbol=target.symbol, company_name=target.name, exchange=target.exchange,
+                              region=target.region, currency=target.currency, candidates=ranked[:5],
+                              reason='Symbol identity resolved. Research data and security type still require preflight checks.')
 
     def search_symbols(self, query: str, limit: int = 10) -> list[SymbolCandidate]:
         normalized_query = _normalize_query(query)

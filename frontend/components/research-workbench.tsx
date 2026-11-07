@@ -26,6 +26,7 @@ import { ReportText } from "./report-text";
 import { ReportHistory } from "./report-history";
 import { WorkbenchIcon } from "./workbench-icon";
 import { researchPhase } from "../lib/research-view";
+import { DataSourcesPanel } from "./data-sources-panel";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -113,7 +114,7 @@ function resolutionStatusMessage(resolution: ResolvedTicker): string {
       return `Resolved to ${label}`;
     }
 
-    return `Validated ${label}`;
+    return `Symbol matched: ${label}. Security eligibility is checked before analysis.`;
   }
 
   return resolution.reason?.trim() || "Unable to resolve the requested symbol.";
@@ -291,6 +292,11 @@ function buildPrintableReport(snapshot: RunSnapshot): string {
         </div>
       </div>
       ${finalDecision}
+      <section class="report-section"><h2>Data availability / 数据完整性</h2>
+        <p>Data mode: ${escapeHtml(snapshot.data_mode ?? "unknown")}</p>
+        ${snapshot.data_availability?.ai_analysis_performed === false ? "<p>No AI analysis · 未进行 AI 分析</p>" : ""}
+        <pre>${escapeHtml(JSON.stringify({availability: snapshot.data_availability, attempts: snapshot.source_attempts, materials: snapshot.source_materials}, null, 2))}</pre>
+      </section>
       ${renderedSections}
     </main>
   </body>
@@ -305,7 +311,8 @@ export function ResearchWorkbench() {
     ANALYST_OPTIONS.map((option) => option.value),
   );
   const [ticker, setTicker] = useState("NVDA");
-  const [analysisDate, setAnalysisDate] = useState(todayIso());
+  const [currentDate, setCurrentDate] = useState("");
+  const [analysisDate, setAnalysisDate] = useState("");
   const [tickerResolution, setTickerResolution] = useState<ResolvedTicker | null>(null);
   const [tickerCandidates, setTickerCandidates] = useState<SymbolCandidate[]>([]);
   const [tickerError, setTickerError] = useState<string | null>(null);
@@ -333,6 +340,12 @@ export function ResearchWorkbench() {
   const activeRunRef = useRef(runId);
   activeRunRef.current = runId;
   const workspaceRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const today = todayIso();
+    setCurrentDate(today);
+    setAnalysisDate(today);
+  }, []);
 
   useEffect(() => {
     if (!runId) return;
@@ -757,7 +770,7 @@ export function ResearchWorkbench() {
                     setTicker(candidate.symbol); setTickerResolution(null); setTickerCandidates([]); setTickerError(null); setError(null);
                   }}><strong>{formatCandidateLabel(candidate)}</strong><small>{formatCandidateMeta(candidate)}</small></button>)}</div>}
               <div className="setupPair"><label className="field"><span>Analysis date</span><input type="date" required
-                value={analysisDate} max={todayIso()} onChange={(event) => { setAnalysisDate(event.target.value); setTickerResolution(null); }} /></label>
+                value={analysisDate} max={currentDate || undefined} onChange={(event) => { setAnalysisDate(event.target.value); setTickerResolution(null); }} /></label>
                 <label className="field"><span>Report language</span><select value={outputLanguage} onChange={(event) => setOutputLanguage(event.target.value)}>
                   {LANGUAGE_OPTIONS.map((item) => <option key={item}>{item}</option>)}<option value="custom">Custom</option></select></label></div>
               {languageNeedsCustom && <label className="field"><span>Custom language</span><input value={customLanguage} required
@@ -771,7 +784,7 @@ export function ResearchWorkbench() {
                 {providers.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
                 {!offline ? <><label className="field"><span>API key{!selectedProvider?.requires_api_key && " (optional)"}</span>
                   <div className="keyInput"><input type={showApiKey ? "text" : "password"} value={apiKey} autoComplete="off"
-                    required={selectedProvider?.requires_api_key} placeholder="Enter this provider’s key"
+                    placeholder="Required for AI analysis after data checks"
                     onChange={(event) => editSetting("apiKey", event.target.value)} />
                     <button type="button" className="keyVisibility" aria-label={showApiKey ? "Hide API key" : "Show API key"}
                       aria-pressed={showApiKey} onClick={() => setShowApiKey(!showApiKey)}>{showApiKey ? "Hide" : "Show"}</button></div>
@@ -816,6 +829,7 @@ export function ResearchWorkbench() {
           {(snapshot || isRunning) && <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
             onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
           {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport} />}
+          {!hasResult && snapshot?.data_availability && <section className="panel resultPanel"><DataSourcesPanel snapshot={snapshot} /></section>}
           {hasResult && <HumanReviewPanel key={snapshot?.run_id} snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
             onOpenRun={openSavedRun} onBusyChange={setReviewBusy} onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)} onRevision={(run) => { if (activeRunRef.current === snapshot?.run_id) startRevision(run); }} />}
           {!snapshot && !isRunning && <>

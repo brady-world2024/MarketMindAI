@@ -216,7 +216,7 @@ async function searchSymbols() {
   $("searchResultsMeta").textContent = `Searching matches for “${query}”…`;
   $("searchResults").innerHTML = '<div class="search-result-empty">Searching…</div>';
   try {
-    const payload = await getJson(`/api/symbols/search?query=${encodeURIComponent(query)}`);
+    const payload = await getJson(`/api/symbols/search?query=${encodeURIComponent(query)}&data_mode=${$("providerSelect").value === "offline" ? "demo" : "live"}`);
     renderSearchResults(payload.query, payload.candidates || []);
   } catch (_error) {
     $("searchResults").innerHTML = '<div class="search-result-empty">Symbol search failed.</div>';
@@ -423,6 +423,7 @@ function renderRunProgress(snapshot) {
   else if (snapshot.status === "error") phase = `Run failed · ${snapshot.error || snapshot.latest_update || "See activity for details"}`;
   else if (active) phase = `In progress · ${active.label}`;
   else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
+  if (snapshot.data_availability?.can_recommend === false) phase = "Data incomplete · No AI analysis · No recommendation";
   $("runPhase").textContent = phase;
   const completed = agents.filter((agent) => agent.status === "completed").length;
   $("phaseDetail").textContent = agents.length ? `${completed} of ${agents.length} agent stages complete${snapshot.report_verification ? ` · Validation: ${snapshot.report_verification.status || "recorded"}` : ""}` : "Stages appear as the run reports progress.";
@@ -440,7 +441,8 @@ function renderRunProgress(snapshot) {
     : snapshot.review?.status === "rejected" ? "Rejected" : snapshot.status === "completed" ? "Awaiting review" : "Waiting";
   $("phaseSteps").innerHTML = groups.map(([label, keys]) => {
     const members = agents.filter((agent) => keys.includes(agent.key));
-    const status = members.length && members.every((agent) => agent.status === "completed") ? "Complete"
+    const status = members.length && members.every((agent) => agent.status === "skipped") ? "Skipped"
+      : members.length && members.every((agent) => agent.status === "completed") ? "Complete"
       : members.some((agent) => agent.status === "error") ? "Failed"
       : members.some((agent) => agent.status === "in_progress" || agent.status === "completed") ? "In progress" : "Waiting";
     return `<li data-phase-status="${status}"><span>${label}</span><small>${status}</small></li>`;
@@ -463,7 +465,8 @@ function renderSnapshot(snapshot) {
   }
   $("runPill").textContent = snapshot.status;
   $("appStatus").textContent = snapshot.latest_update || snapshot.status;
-  $("dataSourceBadge").textContent = snapshot.provider;
+  $("dataSourceBadge").textContent = snapshot.data_mode || "unknown";
+  renderSourceAvailability(snapshot);
   renderDecisionSummary(snapshot);
   renderRunProgress(snapshot);
   renderToolCalls(snapshot);
@@ -472,6 +475,21 @@ function renderSnapshot(snapshot) {
   renderFeed(snapshot);
   renderReports(snapshot);
   if (typeof renderHumanReview === "function") renderHumanReview(snapshot);
+}
+
+function renderSourceAvailability(snapshot) {
+  const data = snapshot.data_availability;
+  const mode = snapshot.data_mode || "unknown";
+  let html = `<h3>Data availability / 数据完整性</h3><p>Data mode: ${escapeHtml(mode)}</p>`;
+  if (mode === "unknown") html += '<p>Historical data mode and isolation have not been verified.</p>';
+  if (mode === "demo") html += '<p>Demo · Synthetic sample data / 演示材料</p>';
+  if (data?.ai_analysis_performed === false) html += '<p>No AI analysis · 未进行 AI 分析</p>';
+  if (data?.can_recommend === false) html += `<p>无法形成建议 · Missing: ${escapeHtml((data.missing || []).join(", "))}</p>`;
+  html += Object.entries(data?.requirements || {}).map(([name, entry]) => `<p>${escapeHtml(name)} · ${entry.required ? "Required" : "Optional"} · ${entry.available ? "Available" : "Unavailable"}${entry.valid_count != null ? ` · ${escapeHtml(entry.valid_count)}/${escapeHtml(entry.minimum_count)} valid daily bars` : ""} · ${escapeHtml((entry.reason_codes || []).join(", "))}</p>`).join("");
+  for (const [title, key] of [["Source attempts / 来源尝试", "source_attempts"], ["Retained materials / 已保留材料", "source_materials"]]) {
+    if (snapshot[key]?.length) html += `<details><summary>${title} (${snapshot[key].length})</summary><pre>${escapeHtml(JSON.stringify(snapshot[key], null, 2))}</pre></details>`;
+  }
+  $("sourceAvailability").innerHTML = html;
 }
 
 async function loadProviders() {
@@ -493,6 +511,7 @@ async function validateSymbol() {
       method: "POST",
       body: JSON.stringify({
         query: $("tickerInput").value.trim(),
+        data_mode: $("providerSelect").value === "offline" ? "demo" : "live",
         analysis_date: $("analysisDateInput").value,
       }),
     });

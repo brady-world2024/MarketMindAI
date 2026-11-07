@@ -26,6 +26,10 @@ def num(value: float | None) -> str:
     return f"${value:,.2f}"
 
 
+def ratio(value: float | None, digits: int = 2) -> str:
+    return 'n/a' if value is None else f'{value:.{digits}f}'
+
+
 def _trend_phrase(score: float, language: str) -> str:
     if _is_chinese(language):
         if score > 20:
@@ -131,8 +135,8 @@ def fundamentals_report(bundle: ResearchBundle, component_score: float, language
             f"- 市值: {num(fundamentals.market_cap)}\n"
             f"- 收入增长: {pct(fundamentals.revenue_growth)}\n"
             f"- 毛利率 / 营业利润率: {pct(fundamentals.gross_margin)} / {pct(fundamentals.operating_margin)}\n"
-            f"- 市盈率(TTM/FWD): {fundamentals.trailing_pe or 0:.1f} / {fundamentals.forward_pe or 0:.1f}\n"
-            f"- 负债权益比 / 流动比率: {fundamentals.debt_to_equity or 0:.2f} / {fundamentals.current_ratio or 0:.2f}\n"
+            f"- 市盈率(TTM/FWD): {ratio(fundamentals.trailing_pe, 1)} / {ratio(fundamentals.forward_pe, 1)}\n"
+            f"- 负债权益比 / 流动比率: {ratio(fundamentals.debt_to_equity)} / {ratio(fundamentals.current_ratio)}\n"
             "解读\n"
             f"- 经营与财务质量整体上表现为{_trend_phrase(component_score, language)}。\n"
             "- 高增长但估值过高时，需要由执行计划和风险席位补充约束。\n"
@@ -143,8 +147,8 @@ def fundamentals_report(bundle: ResearchBundle, component_score: float, language
         f"- Market cap: {num(fundamentals.market_cap)}\n"
         f"- Revenue growth: {pct(fundamentals.revenue_growth)}\n"
         f"- Gross / operating margin: {pct(fundamentals.gross_margin)} / {pct(fundamentals.operating_margin)}\n"
-        f"- P/E (TTM/FWD): {fundamentals.trailing_pe or 0:.1f} / {fundamentals.forward_pe or 0:.1f}\n"
-        f"- Debt / equity and current ratio: {fundamentals.debt_to_equity or 0:.2f} / {fundamentals.current_ratio or 0:.2f}\n"
+        f"- P/E (TTM/FWD): {ratio(fundamentals.trailing_pe, 1)} / {ratio(fundamentals.forward_pe, 1)}\n"
+        f"- Debt / equity and current ratio: {ratio(fundamentals.debt_to_equity)} / {ratio(fundamentals.current_ratio)}\n"
         "Interpretation\n"
         f"- Business quality currently screens as {_trend_phrase(component_score, language)}.\n"
         "- Strong growth can still be a weak trade if valuation and execution discipline do not support it.\n"
@@ -239,7 +243,7 @@ def bull_bear_lists(scores: Dict[str, float], bundle: ResearchBundle, language: 
         f"Revenue growth is {pct(bundle.fundamentals.revenue_growth)} with operating margin {pct(bundle.fundamentals.operating_margin)}.",
     ]
     bears = [
-        f"Trailing P/E is {bundle.fundamentals.trailing_pe or 0:.1f}, leaving valuation exposed to even small execution misses.",
+        f"Trailing P/E is {ratio(bundle.fundamentals.trailing_pe, 1)}, leaving valuation exposed to even small execution misses.",
         f"20-day volatility is {pct(bundle.market.indicators.volatility_20)}, so adverse moves can overwhelm thesis quality.",
         "Macro liquidity, guidance quality, or regulation can reverse the narrative faster than fundamentals can respond.",
     ]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+import json
 from typing import Any
 
 
@@ -173,6 +174,24 @@ def _review_section(snapshot: dict[str, Any]) -> str:
     )
 
 
+def _source_sections(snapshot: dict[str, Any]) -> str:
+    availability = snapshot.get('data_availability') or {}
+    mode = snapshot.get('data_mode') or 'unknown'
+    summary = f"Data mode: {mode}\n"
+    if availability.get('ai_analysis_performed') is False:
+        summary += 'No AI analysis was performed. 无法形成建议。\n'
+    if mode == 'demo':
+        summary += 'Synthetic demo materials. Do not use as live market research.\n'
+    if mode == 'unknown':
+        summary += 'Historical report: data mode and source isolation have not been verified.\n'
+    summary += json.dumps(availability, ensure_ascii=False, indent=2)
+    result = _pre_section('Data Availability / 数据完整性', summary)
+    for title, key in [('Source Attempts / 来源尝试', 'source_attempts'), ('Retained Source Materials / 已保留材料', 'source_materials')]:
+        if snapshot.get(key):
+            result += _pre_section(title, json.dumps(snapshot[key], ensure_ascii=False, indent=2))
+    return result
+
+
 def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str:
     ticker = snapshot.get("ticker") or snapshot.get("original_input") or "Unknown"
     company_name = snapshot.get("company_name") or ""
@@ -216,6 +235,7 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
         )
     structured_sections = "".join(
         [
+            _source_sections(snapshot),
             _structured_decision_section(structured_decision if isinstance(structured_decision, dict) else {}),
             _quality_section(report_quality if isinstance(report_quality, dict) else {}),
             _evidence_ledger_section(evidence_ledger if isinstance(evidence_ledger, list) else []),

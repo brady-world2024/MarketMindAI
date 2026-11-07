@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
+
 from ..agents.utils.research_types import FundamentalSnapshot
-from .alpha_vantage_common import _coerce_float, _gross_margin_from_overview, _make_api_request
+from .alpha_vantage_common import _coerce_float, _gross_margin_from_overview, _make_api_request, _raise_for_alpha_vantage_errors
+from .results import InvalidSourceResponse, finite_number, valid_fiscal_period
 
 
 def get_fundamentals(symbol: str) -> FundamentalSnapshot:
@@ -26,47 +29,44 @@ def get_fundamentals(symbol: str) -> FundamentalSnapshot:
     )
 
 
+def _statement_report(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise InvalidSourceResponse("Financial statement payload is invalid.")
+    _raise_for_alpha_vantage_errors(payload)
+    for collection in ("quarterlyReports", "annualReports"):
+        reports = payload.get(collection)
+        if not isinstance(reports, list):
+            continue
+        for report in reports:
+            if (isinstance(report, dict) and valid_fiscal_period(report.get("fiscalDateEnding"))
+                    and any(finite_number(value) for key, value in report.items()
+                            if key not in ("fiscalDateEnding", "reportedCurrency"))):
+                return report
+    raise InvalidSourceResponse("Financial statement contains no valid fiscal report.")
+
+
+def _render_statement(report: dict) -> str:
+    # Preserve every numeric source field accepted by _statement_report. A
+    # summary subset can omit the only populated field and lose its evidence.
+    lines = [f"Fiscal Date: {report['fiscalDateEnding']}"]
+    for key, value in report.items():
+        if key in ("fiscalDateEnding", "reportedCurrency") or not finite_number(value):
+            continue
+        label = re.sub(r"(?<!^)(?=[A-Z])", " ", key).title()
+        lines.append(f"{label}: {value}")
+    return "\n".join(lines)
+
+
 def get_balance_sheet(symbol: str) -> str:
     payload = _make_api_request("BALANCE_SHEET", {"symbol": symbol})
-    reports = payload.get("quarterlyReports") or payload.get("annualReports") or []
-    if not reports:
-        return "No Alpha Vantage balance-sheet report was returned."
-    report = reports[0]
-    return (
-        f"Fiscal Date: {report.get('fiscalDateEnding', '')}\n"
-        f"Total Assets: {report.get('totalAssets', '')}\n"
-        f"Total Liabilities: {report.get('totalLiabilities', '')}\n"
-        f"Cash And Short Term Investments: {report.get('cashAndShortTermInvestments', '')}\n"
-        f"Current Debt: {report.get('currentDebt', '')}\n"
-        f"Long Term Debt: {report.get('longTermDebt', '')}"
-    )
+    return _render_statement(_statement_report(payload))
 
 
 def get_cashflow(symbol: str) -> str:
     payload = _make_api_request("CASH_FLOW", {"symbol": symbol})
-    reports = payload.get("quarterlyReports") or payload.get("annualReports") or []
-    if not reports:
-        return "No Alpha Vantage cash-flow report was returned."
-    report = reports[0]
-    return (
-        f"Fiscal Date: {report.get('fiscalDateEnding', '')}\n"
-        f"Operating Cashflow: {report.get('operatingCashflow', '')}\n"
-        f"Capital Expenditures: {report.get('capitalExpenditures', '')}\n"
-        f"Cashflow From Investment: {report.get('cashflowFromInvestment', '')}\n"
-        f"Cashflow From Financing: {report.get('cashflowFromFinancing', '')}"
-    )
+    return _render_statement(_statement_report(payload))
 
 
 def get_income_statement(symbol: str) -> str:
     payload = _make_api_request("INCOME_STATEMENT", {"symbol": symbol})
-    reports = payload.get("quarterlyReports") or payload.get("annualReports") or []
-    if not reports:
-        return "No Alpha Vantage income-statement report was returned."
-    report = reports[0]
-    return (
-        f"Fiscal Date: {report.get('fiscalDateEnding', '')}\n"
-        f"Total Revenue: {report.get('totalRevenue', '')}\n"
-        f"Gross Profit: {report.get('grossProfit', '')}\n"
-        f"Operating Income: {report.get('operatingIncome', '')}\n"
-        f"Net Income: {report.get('netIncome', '')}"
-    )
+    return _render_statement(_statement_report(payload))

@@ -9,6 +9,7 @@ import re
 from typing import Iterable
 
 from ...pathing import safe_ticker_component
+from .memory import matches_active_data_mode
 
 
 @dataclass
@@ -158,14 +159,22 @@ class MarketMindMemoryRetriever:
     def _collect_report_snippets(self, ticker: str, trade_date: str) -> list[MemorySnippet]:
         report_dir = self.results_dir / safe_ticker_component(ticker) / "MarketMindStrategy_logs"
         snippets: list[MemorySnippet] = []
-        records = [("approved_review", state) for state in self.memory_log.approved_states()
-                   if safe_ticker_component(str(state.get("company_of_interest") or "")) == ticker]
+        records = []
+        for state in self.memory_log.approved_states():
+            try:
+                if safe_ticker_component(str(state.get('company_of_interest') or '')) == ticker:
+                    records.append(('approved_review', state))
+            except ValueError:
+                # Approved preflight-only reports contain no analyst state.
+                continue
         for path in sorted(report_dir.glob("full_states_log_*.json"), reverse=True):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 continue
             # Legacy unmarked logs remain readable; reviewed drafts are never memory.
+            if not matches_active_data_mode(payload):
+                continue
             if payload.get("review_status") and payload["review_status"] != "approved":
                 continue
             records.append((str(path), payload))

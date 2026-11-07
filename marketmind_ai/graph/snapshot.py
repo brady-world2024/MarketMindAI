@@ -78,6 +78,11 @@ class RunSnapshot:
     output_language: str
     selected_analysts: List[str]
     started_at: str
+    data_mode: str = "unknown"
+    data_availability: Optional[dict] = None
+    instrument_eligibility: Optional[dict] = None
+    source_attempts: List[dict] = field(default_factory=list)
+    source_materials: List[dict] = field(default_factory=list)
     resolved_from: Optional[str] = None
     company_name: Optional[str] = None
     exchange: str = ""

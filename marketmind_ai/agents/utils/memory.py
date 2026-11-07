@@ -10,6 +10,15 @@ from ...pathing import safe_ticker_component
 from .rating import NO_RECOMMENDATION, parse_rating
 
 
+def matches_active_data_mode(record: dict) -> bool:
+    """Library reads retain history; active research uses only matching provenance."""
+    from ...dataflows.config import get_audit, get_config
+    if get_audit() is None:
+        return True
+    mode = get_config().get('data_mode')
+    return mode not in {'live', 'demo'} or record.get('data_mode', 'unknown') == mode
+
+
 class MarketMindMemoryLog:
     _SEPARATOR = "\n\n<!-- MARKETMIND_ENTRY_END -->\n\n"
     _TAG_RE = re.compile(r"^\[(?P<body>.+?)\]$")
@@ -49,7 +58,7 @@ class MarketMindMemoryLog:
             if parsed is not None:
                 entries.append(parsed)
         entries.extend(self._approved_records("entry"))
-        return entries
+        return [entry for entry in entries if matches_active_data_mode(entry)]
 
     def _approved_records(self, column: str) -> list[dict]:
         if self._review_db_path is None or not self._review_db_path.exists():
@@ -57,10 +66,15 @@ class MarketMindMemoryLog:
         if column not in {"entry", "state"}:
             raise ValueError("Unsupported memory column")
         with sqlite3.connect(self._review_db_path) as db:
-            rows = db.execute(f"SELECT run_id,{column} FROM approved_memories ORDER BY rowid").fetchall()
+            rows = db.execute(f"SELECT m.run_id,m.{column},r.snapshot FROM approved_memories m "
+                              "JOIN review_runs r ON r.run_id=m.run_id ORDER BY m.rowid").fetchall()
         records = []
-        for run_id, raw in rows:
+        for run_id, raw, raw_snapshot in rows:
             record = json.loads(raw)
+            snapshot = json.loads(raw_snapshot) if raw_snapshot else {}
+            record['data_mode'] = snapshot.get('data_mode', 'unknown')
+            if not matches_active_data_mode(record):
+                continue
             if column == "entry":
                 # The table identity also upgrades records written before run_id was in the JSON.
                 record["run_id"] = run_id
