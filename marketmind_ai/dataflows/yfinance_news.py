@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 try:
     import yfinance as yf
@@ -10,6 +10,7 @@ except Exception:  # pragma: no cover - optional import failure path
     yf = None
 
 from ..agents.utils.research_types import NewsItem
+from .source_policy import aware_time
 
 
 def _extract_article_data(article: dict) -> dict:
@@ -35,6 +36,7 @@ def _extract_article_data(article: dict) -> dict:
             "publisher": publisher,
             "link": link,
             "pub_date": pub_date,
+            "published_at": (pub_date_str if len(pub_date_str) == 10 else pub_date.isoformat()) if pub_date else "",
         }
     return {
         "title": article.get("title", "No title"),
@@ -48,7 +50,7 @@ def _extract_article_data(article: dict) -> dict:
 def _article_to_document(article: dict, scope: str) -> dict:
     data = _extract_article_data(article)
     pub_date = data.get("pub_date")
-    published_at = pub_date.strftime("%Y-%m-%d") if pub_date else ""
+    published_at = data.get("published_at", "")
     return {
         "title": data["title"],
         "summary": data["summary"],
@@ -104,14 +106,14 @@ def get_news_documents_yfinance(
         if not news:
             return []
 
-        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         documents = []
         for article in news:
             data = _extract_article_data(article)
-            if data["pub_date"]:
-                pub_date_naive = data["pub_date"].replace(tzinfo=None)
-                if not (start_dt <= pub_date_naive <= end_dt + timedelta(days=1)):
+            published = aware_time(data["pub_date"])
+            if published:
+                if not (start_dt <= published < end_dt + timedelta(days=1)):
                     continue
             documents.append(_article_to_document(article, "company"))
         return documents
@@ -137,7 +139,7 @@ def get_global_news_documents_yfinance(
     all_news = []
     seen_titles = set()
     try:
-        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
+        curr_dt = datetime.strptime(curr_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         start_dt = curr_dt - timedelta(days=look_back_days)
 
         for query in search_queries:
@@ -155,10 +157,9 @@ def get_global_news_documents_yfinance(
                 title = data["title"]
                 if not title or title in seen_titles:
                     continue
-                pub_date = data.get("pub_date")
+                pub_date = aware_time(data.get("pub_date"))
                 if pub_date:
-                    pub_naive = pub_date.replace(tzinfo=None)
-                    if pub_naive < start_dt or pub_naive > curr_dt + timedelta(days=1):
+                    if pub_date < start_dt or pub_date >= curr_dt + timedelta(days=1):
                         continue
                 seen_titles.add(title)
                 all_news.append(_article_to_document(article, "macro"))

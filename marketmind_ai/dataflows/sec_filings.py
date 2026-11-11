@@ -12,6 +12,7 @@ from html.parser import HTMLParser
 from typing import Any
 
 from .config import get_config
+from .source_capture import capture_source_response
 
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -121,13 +122,19 @@ def _extract_filing_text(html: str) -> str:
 def _sec_get_json(url: str) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=_sec_headers())
     with urllib.request.urlopen(request, timeout=20) as response:
-        return json.loads(_read_response_bytes(response).decode("utf-8"))
+        body = _read_response_bytes(response).decode("utf-8")
+        content_type = response.headers.get('Content-Type', 'application/json')
+    capture_source_response(url, body, content_type)
+    return json.loads(body)
 
 
 def _sec_get_text(url: str) -> str:
     request = urllib.request.Request(url, headers=_sec_headers())
     with urllib.request.urlopen(request, timeout=20) as response:
-        return _read_response_bytes(response).decode("utf-8", errors="ignore")
+        body = _read_response_bytes(response).decode("utf-8", errors="ignore")
+        content_type = response.headers.get('Content-Type', 'text/plain')
+    capture_source_response(url, body, content_type)
+    return body
 
 
 def _read_response_bytes(response) -> bytes:

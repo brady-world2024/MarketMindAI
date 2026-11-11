@@ -1,6 +1,7 @@
 fastapi>=0.115.0
 uvicorn>=0.35.0
 pandas>=2.3.0
+exchange_calendars>=4.5,<5
 questionary>=2.1.0
 langchain-anthropic>=0.3.12
 langchain-google-genai>=2.1.5

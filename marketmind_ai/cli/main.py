@@ -135,7 +135,7 @@ def _render_tool_calls(snapshot):
 def _render_reports(snapshot):
     populated = [report for report in snapshot.reports if str(report.content or "").strip()]
     if not populated:
-        return Panel("No report sections have been produced yet.", title="Report Preview", border_style="green")
+        return Group(_render_provenance(snapshot), Panel("No report sections have been produced yet.", title="Report Preview", border_style="green"))
 
     table = Table(expand=True, show_header=True)
     table.add_column("Section", width=28)
@@ -144,7 +144,28 @@ def _render_reports(snapshot):
         table.add_row(report.label, _clip(report.content, 220))
     latest = populated[-1]
     preview = Markdown(latest.content[:1200]) if str(latest.content or "").strip() else Text("-")
-    return Panel(Group(table, Text(""), Panel(preview, title=f"Latest: {latest.label}")), title="Report Preview", border_style="green")
+    return Group(_render_provenance(snapshot), Panel(Group(table, Text(""), Panel(preview, title=f"Latest: {latest.label}")), title="Report Preview", border_style="green"))
+
+
+def _render_provenance(snapshot):
+    cutoff = getattr(snapshot, 'research_cutoff', None) or {}
+    manifest = getattr(snapshot, 'data_snapshot', None) or {}
+    lines = []
+    if not cutoff or not manifest.get('snapshot_id'):
+        lines.append('Snapshot provenance: Unverified · 未核验')
+    for label, data, key in [
+        ('Requested date', cutoff, 'requested_date'), ('Effective session date', cutoff, 'effective_session_date'),
+        ('Cutoff (UTC)', cutoff, 'cutoff_at'), ('Cutoff (market local)', cutoff, 'cutoff_at_local'),
+        ('Market timezone', cutoff, 'market_timezone'), ('Snapshot ID', manifest, 'snapshot_id'),
+        ('Manifest SHA-256', manifest, 'manifest_sha256'), ('Policy version', manifest, 'policy_version'),
+        ('Processing version', manifest, 'processing_version'),
+    ]:
+        lines.append(f'{label}: {data.get(key) or "Unverified"}')
+    for record in getattr(snapshot, 'source_records', None) or []:
+        lines.append(' · '.join(f'{key}: {record.get(key) or "Unverified"}' for key in (
+            'record_id', 'method', 'admissibility', 'reason_codes', 'provider', 'publisher', 'published_at',
+            'period_end', 'accession', 'source_url', 'raw_content_kind', 'raw_sha256')))
+    return Panel(Text('\n'.join(lines)), title='Research Cutoff & Saved Data', border_style='cyan')
 
 def _render_dashboard(snapshot, stats: RunStatistics):
     layout = Layout()
@@ -209,6 +230,7 @@ def run_analyze(options: AnalyzeOptions) -> int:
         console.print(dump_json(final_snapshot.to_dict()))
     else:
         console.print()
+        console.print(_render_provenance(final_snapshot))
         console.print(Panel(final_snapshot.final_decision or "No final decision produced.", title="Final Decision"))
         console.print(format_run_statistics(stats.get_stats()))
     return 0
@@ -278,6 +300,7 @@ def analyze_command(
     analyst: list[str] = typer.Option(None, "--analyst"),
     research_depth: int = typer.Option(1, "--research-depth", min=1, max=5),
     checkpoint: bool = typer.Option(False, "--checkpoint"),
+    snapshot_id: str = typer.Option("", "--snapshot-id", help="Replay an existing saved data snapshot without fetching sources."),
     storage_root: str = typer.Option("", "--storage-root"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -298,6 +321,7 @@ def analyze_command(
             analysts=analyst or list(DEFAULT_CLI_ANALYSTS),
             research_depth=research_depth,
             checkpoint_enabled=checkpoint,
+            snapshot_id=snapshot_id or None,
             storage_root=storage_root,
             emit_json=json_output,
         )

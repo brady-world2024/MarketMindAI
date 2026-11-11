@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -12,9 +13,13 @@ from ..agents.utils.memory_retrieval import MarketMindMemoryRetriever
 from ..config import AppPaths, DEFAULT_ANALYSTS
 from ..dataflows.config import DataflowAudit, dataflow_context, get_audit
 from ..dataflows.preflight import run_preflight
+from ..dataflows.research_cutoff import ResearchCutoff, resolve_research_cutoff
+from ..dataflows.research_snapshot import bind_frozen_snapshot, load_research_snapshot, prepare_research_snapshot, snapshot_availability
+from ..dataflows.source_store import SourceStore, snapshot_fingerprint
+from ..dataflows.results import safe_json
 from ..evaluation import OutcomeEvaluator
 from ..llm_clients import build_model_bundle
-from ..symbols import SymbolResolver
+from ..symbols import SymbolResolver, SymbolResolution
 from ..verification import DecisionVerifier
 from .checkpointer import clear_checkpoint, get_checkpointer, has_checkpoint, thread_id
 from .pending_outcomes import PendingOutcomeResolver
@@ -57,6 +62,10 @@ class MarketMindGraph:
         with dataflow_context(self.config):
             return self.resolver.resolve_identity(query, analysis_date)
 
+    def resolve_saved_snapshot(self, snapshot_id, query, analysis_date, mode):
+        data = load_research_snapshot(SourceStore(self.paths.root / 'sources'), snapshot_id, query, analysis_date, mode)
+        return SymbolResolution.model_validate(data.resolution)
+
     def validate_provider(self, request: AnalysisRequest) -> tuple[bool, str]:
         if request.llm_provider.lower() == "offline":
             return True, "Offline LangGraph runtime is always available."
@@ -95,9 +104,29 @@ class MarketMindGraph:
         snapshot.instrument_eligibility = availability.instrument.to_dict() if availability.instrument else None
         snapshot.source_attempts = [item.to_dict() for item in audit.attempts] if audit else []
         snapshot.source_materials = [item.to_dict() for item in audit.materials] if audit else []
+        if audit and audit.frozen_inputs is not None:
+            data = audit.frozen_inputs.snapshot
+            snapshot.research_cutoff = data.cutoff
+            snapshot.data_snapshot = {'snapshot_id': data.snapshot_id, 'manifest_sha256': audit.frozen_inputs.manifest_sha256,
+                'format_version': data.format_version, 'policy_version': data.policy_version,
+                'processing_version': data.processing_version, 'origin_run_id': data.origin_run_id}
+            snapshot.source_records = audit.frozen_inputs.source_records
+            snapshot.source_attempts = data.attempts
+            snapshot.source_materials = data.materials
 
     def _stream_scoped(self, request, run_id, runtime_config):
-        resolution = self.resolver.resolve_identity(request.ticker, request.analysis_date)
+        store = SourceStore(self.paths.root / 'sources')
+        data = None
+        audit = get_audit()
+        if request.snapshot_id:
+            data = load_research_snapshot(store, request.snapshot_id, request.ticker, request.analysis_date, runtime_config['data_mode'])
+            resolution = SymbolResolution.model_validate(data.resolution)
+            cutoff = ResearchCutoff(**data.cutoff)
+            bind_frozen_snapshot(data, audit)
+        else:
+            cutoff = resolve_research_cutoff(request.analysis_date)
+            audit.cutoff_at = cutoff.cutoff_at
+            resolution = self.resolver.resolve_identity(request.ticker, cutoff.effective_session_date)
         if resolution.status != "RESOLVED":
             raise ValueError(resolution.reason or "Symbol resolution failed.")
 
@@ -105,9 +134,16 @@ class MarketMindGraph:
         snapshot = self.projector.create_snapshot(run_id=run_id, request=request, resolution=resolution)
         snapshot.status = "running"
         snapshot.data_mode = runtime_config['data_mode']
+        snapshot.research_cutoff = cutoff.to_dict()
         snapshot.latest_update = "Checking security eligibility and required data. No AI analysis yet."
         yield snapshot.clone()
-        availability = run_preflight(ticker, request.analysis_date)
+        if data is None:
+            memory_contexts = self.memory_retriever.build_contexts(ticker, cutoff.effective_session_date)
+            memory_contexts['past_context'] = self.memory_log.get_past_context(ticker)
+            data = prepare_research_snapshot(resolution, cutoff, store, run_id=run_id,
+                memory_contexts=memory_contexts, memory_entries=safe_json(self.journal.recall(ticker, 5)),
+                calibration_summary=self.outcome_evaluator.build_summary())
+        availability = snapshot_availability(data)
         self._attach_sources(snapshot, availability)
         if not availability.can_recommend:
             missing = ', '.join(availability.missing)
@@ -136,7 +172,7 @@ class MarketMindGraph:
         yield snapshot.clone()
         try:
             engine = GraphResearchEngine(
-                request=request,
+                request=replace(request, analysis_date=cutoff.effective_session_date),
                 resolution=resolution.to_dict(),
                 journal=self.journal,
                 verifier=self.verifier,
@@ -152,18 +188,14 @@ class MarketMindGraph:
             # The original provider exception may contain connection secrets.
             raise ValueError(snapshot.error) from None
         availability.ai_analysis_performed = True
-        self.pending_outcomes.resolve_for_ticker(ticker, request.analysis_date, engine.models.quick)
-        calibration_summary = self.outcome_evaluator.build_summary()
-        memory_contexts = self.memory_retriever.build_contexts(ticker, request.analysis_date)
         self._attach_sources(snapshot, availability)
         snapshot.latest_update = resolution.reason or "Resolved symbol. Preparing LangGraph analysis."
         yield snapshot.clone()
 
         workflow = engine.build_graph()
         initial_state = engine.initial_state()
-        initial_state["past_context"] = self.memory_log.get_past_context(ticker)
-        initial_state["calibration_summary"] = calibration_summary
-        initial_state.update(memory_contexts)
+        initial_state['calibration_summary'] = data.calibration_summary
+        initial_state.update(data.memory_contexts)
         current_state = None
 
         try:
@@ -172,6 +204,7 @@ class MarketMindGraph:
                 # checkpoints belong to one run and one explicit source config.
                 source_identity = json.dumps({key: runtime_config.get(key) for key in
                     ('data_mode', 'data_vendors', 'tool_vendors')}, sort_keys=True)
+                source_identity += audit.frozen_inputs.manifest_sha256
                 checkpoint_namespace = f"{run_id}:{hashlib.sha256(source_identity.encode()).hexdigest()}"
                 with get_checkpointer(self.paths.root, ticker) as saver:
                     graph = workflow.compile(checkpointer=saver)

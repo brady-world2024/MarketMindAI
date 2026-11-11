@@ -36,6 +36,10 @@ class DataflowAudit:
     attempts: list[SourceAttempt] = field(default_factory=list)
     materials: list[SourceMaterial] = field(default_factory=list)
     cache: dict[Any, VendorResult] = field(default_factory=dict)
+    frozen_inputs: Any = None
+    cutoff_at: str | None = None
+    raw_captures: list[dict] = field(default_factory=list)
+    capture_context: Any = None
     lock: Any = field(default_factory=RLock, repr=False)
 
 

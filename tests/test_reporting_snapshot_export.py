@@ -191,3 +191,48 @@ def test_export_shows_approval_and_escapes_reviewer_feedback():
 def test_legacy_export_does_not_imply_human_approval():
     html = render_report_html({"ticker": "NVDA", "status": "completed"})
     assert "No human review recorded" in html
+
+
+def test_export_carries_frozen_provenance_and_marks_legacy_unverified():
+    snapshot = {"ticker": "NVDA", "research_cutoff": {"requested_date": "2026-07-04", "effective_session_date": "2026-07-02", "cutoff_at": "2026-07-02T20:00:00Z", "cutoff_at_local": "2026-07-02T16:00:00-04:00", "market_timezone": "America/New_York"},
+                "data_snapshot": {"snapshot_id": "saved", "manifest_sha256": "hash", "policy_version": "p2", "processing_version": "v2"},
+                "source_records": [{"record_id": "r1", "admissibility": "excluded", "reason_codes": ["after_cutoff"], "publisher": "SEC <official>", "accession": "001", "period_end": "2026-03-31", "raw_sha256": "hash"}]}
+    html = render_report_html(snapshot)
+    for value in ["2026-07-04", "2026-07-02", "America/New_York", "saved", "hash", "p2", "v2", "Excluded", "after_cutoff", "SEC &lt;official&gt;", "001", "/api/snapshots/saved/sources/r1"]:
+        assert value in html
+    assert "Snapshot provenance: Unverified" in render_report_html({"ticker": "NVDA"})
+
+
+def test_cli_provenance_keeps_sources_and_marks_legacy_unverified():
+    from types import SimpleNamespace
+    from io import StringIO
+    from rich.console import Console
+    from marketmind_ai.cli.main import _render_provenance
+    output = StringIO()
+    console = Console(file=output, width=160, color_system=None)
+    console.print(_render_provenance(SimpleNamespace(research_cutoff={"requested_date": "2026-07-04", "effective_session_date": "2026-07-02", "market_timezone": "America/New_York"}, data_snapshot={"snapshot_id": "saved", "policy_version": "p2"}, source_records=[{"record_id": "r1", "admissibility": "unverified", "reason_codes": ["public_time_unverified"], "publisher": "SEC", "accession": "001"}])))
+    for value in ["2026-07-04", "2026-07-02", "America/New_York", "saved", "p2", "unverified", "public_time_unverified", "SEC", "001"]:
+        assert value in output.getvalue()
+    output.truncate(0)
+    output.seek(0)
+    console.print(_render_provenance(SimpleNamespace()))
+    assert "Snapshot provenance: Unverified" in output.getvalue()
+
+
+def test_cli_keeps_provenance_in_final_output_after_live_dashboard_closes():
+    import importlib
+    from io import StringIO
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from rich.console import Console
+    cli = importlib.import_module('marketmind_ai.cli.main')
+    snapshot = SnapshotProjector(DummySignalProcessor()).create_snapshot(run_id='cli', request=_request(), resolution=_resolution())
+    snapshot.data_snapshot = {'snapshot_id': 'saved-cli'}
+    snapshot.research_cutoff = {'effective_session_date': '2026-06-11'}
+    output = StringIO()
+    with patch.object(cli, 'console', Console(file=output, width=160, color_system=None)), \
+         patch.object(cli, 'workflow_from_storage_root', return_value=SimpleNamespace(stream=lambda request: iter([snapshot]))), \
+         patch.object(cli, 'build_analysis_request', return_value=_request()):
+        assert cli.run_analyze(SimpleNamespace(storage_root=None, emit_json=False)) == 0
+    assert 'saved-cli' in output.getvalue()
+    assert '2026-06-11' in output.getvalue()

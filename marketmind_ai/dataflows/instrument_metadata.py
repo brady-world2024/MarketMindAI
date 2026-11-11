@@ -11,6 +11,9 @@ from typing import Any
 from . import sec_filings as sec
 from .results import Serializable, utc_now
 from .market_identity import normalize_exchange
+from .config import get_audit
+from .source_policy import aware_time
+from .sec_statements import get_sec_filing_identity
 
 DIRECTORY_BASE = 'https://www.nasdaqtrader.com/dynamic/SymDir/'
 
@@ -120,10 +123,25 @@ def get_instrument_metadata(symbol: str, analysis_date: str) -> InstrumentEligib
         return InstrumentEligibility(symbol=symbol, reason_codes=['sec_security_not_found'], provider='sec')
     url = sec.SEC_SUBMISSIONS_URL.format(cik=cik)
     recent = (sec._sec_get_json(url).get('filings') or {}).get('recent') or {}
-    filings = sorted((dict(zip(('form', 'date', 'accession', 'document'), values)) for values in zip(
+    filings = sorted((dict(zip(('form', 'date', 'accession', 'document'), values), published_at=(
+        recent.get('acceptanceDateTime', [])[index] if index < len(recent.get('acceptanceDateTime', [])) else None))
+        for index, values in enumerate(zip(
         recent.get('form', []), recent.get('filingDate', []), recent.get('accessionNumber', []),
-        recent.get('primaryDocument', [])) if values[0] in {'10-K', '10-Q', '20-F', '40-F'} and values[1] <= analysis_date),
+        recent.get('primaryDocument', []))) if values[0] in {'10-K', '10-Q', '20-F', '40-F'} and values[1] <= analysis_date),
         key=lambda item: item['date'], reverse=True)
+    audit = get_audit()
+    cutoff = aware_time(audit.cutoff_at) if audit and audit.cutoff_at else None
+    if cutoff:
+        filings = [filing for filing in filings if aware_time(filing['published_at']) is not None and aware_time(filing['published_at']) <= cutoff]
+        filings.sort(key=lambda filing: aware_time(filing['published_at']), reverse=True)
+    historical = None
+    if not filings and cutoff:
+        historical = get_sec_filing_identity(symbol, cutoff)
+        if not historical.reason_codes and historical.primary_document_url:
+            filings = [{'form': historical.form, 'date': historical.published_at[:10],
+                        'accession': historical.accession, 'document': historical.primary_document_url.rsplit('/', 1)[-1],
+                        'published_at': historical.published_at}]
+            cik = historical.cik
     if not filings:
         return InstrumentEligibility(symbol=symbol, reason_codes=['registered_cover_unavailable'], provider='sec', source_urls=[url])
     filing = filings[0]
@@ -143,6 +161,11 @@ def get_instrument_metadata(symbol: str, analysis_date: str) -> InstrumentEligib
                 directory = dict(row, symbol=identifier)
                 break
     result = classify_instrument(symbol, rows, directory)
+    result.metadata['cik'] = cik
+    accepted = aware_time(filing.get('published_at'))
+    result.metadata['published_at'] = accepted.isoformat() if accepted else None
+    result.metadata['directory_public_time_verified'] = False
+    result.metadata['directory_role'] = 'current_listing_veto_only'
     result.provider, result.source_urls = 'sec', urls
     return result
 

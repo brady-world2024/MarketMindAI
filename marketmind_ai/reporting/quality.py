@@ -19,6 +19,7 @@ def build_evidence_ledger(
     structured_decision: Mapping[str, Any] | Any,
     *,
     analysis_date: str,
+    source_records: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Render final decision evidence into a stable, auditable ledger."""
     decision = _as_mapping(structured_decision)
@@ -27,6 +28,14 @@ def build_evidence_ledger(
     rows: list[dict[str, Any]] = []
     for index, item in enumerate(evidence, start=1):
         source_date = _text(item.get("source_date"))
+        admitted = next((record for record in source_records or []
+            if record.get('admissibility') == 'included' and record.get('provider') == 'sec'
+            and record.get('method') in {'get_income_statement', 'get_balance_sheet', 'get_cashflow'}
+            and record.get('accession') and record.get('published_at')
+            and record.get('source_url') == _text(item.get('url') or item.get('link'))
+            and _text(item.get('provider')) == 'sec'
+            and source_date[:10] in {record['published_at'][:10], record.get('period_end')}
+            and _freshness(record['published_at'], analysis_date) != 'future'), None)
         rows.append(
             {
                 "evidence_id": f"E{index}",
@@ -37,7 +46,8 @@ def build_evidence_ledger(
                 "excerpt": _text(item.get("excerpt") or item.get("detail")),
                 "interpretation": _text(item.get("interpretation")),
                 "strength": _text(item.get("strength")),
-                "freshness": _freshness(source_date, analysis_date),
+                "freshness": 'current' if admitted else _freshness(source_date, analysis_date),
+                "source_record_id": admitted['record_id'] if admitted else None,
                 "supports": supports,
                 "provider": _text(item.get("provider")),
                 "url": _text(item.get("url") or item.get("link")),
@@ -59,10 +69,11 @@ class ReportQualityScorer:
         structured_decision: Mapping[str, Any] | Any,
         verification: Mapping[str, Any] | None = None,
         calibration_summary: Mapping[str, Any] | None = None,
+        source_records: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         decision = _as_mapping(structured_decision)
         analysis_date = _text(final_state.get("trade_date"))
-        ledger = build_evidence_ledger(decision, analysis_date=analysis_date)
+        ledger = build_evidence_ledger(decision, analysis_date=analysis_date, source_records=source_records)
         claim_audit = ClaimEvidenceAuditor().audit(decision, ledger)
         dimensions = {
             "evidence_count": self._evidence_count(ledger),

@@ -8,7 +8,7 @@ from marketmind_ai.graph.marketmind_graph import MarketMindGraph
 from marketmind_ai.graph.request import AnalysisRequest
 from marketmind_ai.web.models import RunSnapshot
 from marketmind_ai.web.report_export import render_report_html
-from test_data_preflight import bars
+from test_point_in_time_data import valid_bars, sec_bundle
 
 
 @pytest.fixture
@@ -16,11 +16,17 @@ def unavailable_workflow(tmp_path, monkeypatch):
     monkeypatch.setitem(VENDOR_METHODS['search_symbols'], 'yfinance', lambda *a, **k: [
         {'symbol': 'ABC', 'name': 'ABC Incorporated', 'provider': 'yfinance', 'type': 'EQUITY'}])
     monkeypatch.setitem(VENDOR_METHODS['get_instrument_metadata'], 'sec', lambda *a: InstrumentEligibility(
-        symbol='ABC', status='supported', exchange='NYSE', security_type='common_stock', provider='sec'))
-    monkeypatch.setitem(VENDOR_METHODS['get_price_history'], 'yfinance', lambda *a: bars(50))
+        symbol='ABC', status='supported', exchange='NYSE', security_type='common_stock', provider='sec', metadata={'cik': '0000000001', 'published_at': '2026-05-01T15:00:00Z'}))
+    monkeypatch.setitem(VENDOR_METHODS['get_price_history'], 'yfinance', lambda *a: valid_bars())
     for method in ('get_income_statement', 'get_balance_sheet', 'get_fundamentals', 'get_news'):
         monkeypatch.setitem(VENDOR_METHODS[method], 'yfinance', lambda *a: None)
     monkeypatch.setitem(VENDOR_METHODS['get_cashflow'], 'yfinance', lambda *a: 'Fiscal period 2025-12-31\nCashflow: 0')
+    bundle = sec_bundle()
+    bundle.available = False
+    bundle.reason_codes = ['missing_income_statement', 'missing_balance_sheet']
+    del bundle.statements['income_statement']
+    del bundle.statements['balance_sheet']
+    monkeypatch.setattr('marketmind_ai.dataflows.research_snapshot.get_sec_statement_bundle', lambda *a: bundle)
     workflow = MarketMindGraph(storage_root=tmp_path)
     engine = Mock(side_effect=AssertionError('No model or graph engine may be constructed'))
     monkeypatch.setattr('marketmind_ai.graph.marketmind_graph.GraphResearchEngine', engine)
@@ -105,8 +111,9 @@ def test_api_retains_partial_result_and_exports_it_without_api_key(unavailable_w
 
 def test_model_setup_failure_retains_completed_preflight_materials(unavailable_workflow, monkeypatch):
     workflow, engine = unavailable_workflow
-    for method in ('get_income_statement', 'get_balance_sheet'):
-        monkeypatch.setitem(VENDOR_METHODS[method], 'yfinance', lambda *a: 'Fiscal period 2025-12-31\nRevenue: 0')
+    monkeypatch.setattr('marketmind_ai.dataflows.research_snapshot.get_sec_statement_bundle', lambda *a: sec_bundle())
+    monkeypatch.setitem(VENDOR_METHODS['get_global_news'], 'yfinance', lambda *a: [])
+    monkeypatch.setitem(VENDOR_METHODS['get_insider_transactions'], 'yfinance', lambda *a: None)
     engine.side_effect = ValueError('Missing credentials')
     snapshots = []
     with pytest.raises(ValueError, match='AI connection could not be initialized'):

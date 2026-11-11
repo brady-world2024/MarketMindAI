@@ -79,6 +79,9 @@ class RunSnapshot:
     selected_analysts: List[str]
     started_at: str
     data_mode: str = "unknown"
+    research_cutoff: Optional[dict] = None
+    data_snapshot: Optional[dict] = None
+    source_records: List[dict] = field(default_factory=list)
     data_availability: Optional[dict] = None
     instrument_eligibility: Optional[dict] = None
     source_attempts: List[dict] = field(default_factory=list)

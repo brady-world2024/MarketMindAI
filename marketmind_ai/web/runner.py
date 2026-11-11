@@ -47,6 +47,9 @@ def resolve_request_symbol(request: AnalysisRequest, workflow: MarketMindGraph |
         runtime = MarketMindGraph(config=build_graph_config(request))
     else:
         runtime = MarketMindGraph(storage_root=workflow.paths.root, config=build_graph_config(request))
+    if request.snapshot_id:
+        mode = "demo" if request.llm_provider.lower() == "offline" else "live"
+        return runtime.resolve_saved_snapshot(request.snapshot_id, request.ticker, request.analysis_date, mode)
     return runtime.resolve_for_research(request.ticker, request.analysis_date)
 
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -16,6 +17,7 @@ from ..agents.utils.research_types import FundamentalSnapshot, PriceBar
 from ..symbols import SymbolCandidate
 from .stockstats_utils import render_indicator_report
 from .results import InvalidSourceResponse, UnconfiguredSourceError, finite_number, valid_fiscal_period
+from .source_capture import capture_source_response
 
 
 def _http_json(url: str, timeout: int = 15) -> dict:
@@ -28,6 +30,7 @@ def _http_json(url: str, timeout: int = 15) -> dict:
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read().decode("utf-8")
+    capture_source_response(url, body, 'application/json')
     return json.loads(body)
 
 
@@ -71,54 +74,28 @@ def search_symbols(query: str, limit: int = 8) -> list[SymbolCandidate]:
     return candidates[:limit]
 
 
+def _price_retrieval_now():
+    return datetime.now(timezone.utc)
+
+
 def get_price_history(symbol: str, analysis_date: str, lookback_days: int = 180) -> list[PriceBar]:
-    end_date = datetime.strptime(analysis_date, "%Y-%m-%d").date()
+    from .price_units import restore_cutoff_units
+    from .research_cutoff import resolve_research_cutoff
+    now = _price_retrieval_now()
+    cutoff = resolve_research_cutoff(analysis_date, now=now)
+    market_zone = ZoneInfo('America/New_York')
+    end_date = datetime.strptime(cutoff.effective_session_date, "%Y-%m-%d").date()
     start_date = end_date - timedelta(days=lookback_days * 2)
-    period1 = int(datetime.combine(start_date, datetime.min.time()).timestamp())
-    period2 = int(datetime.combine(end_date + timedelta(days=1), datetime.min.time()).timestamp())
-    params = urllib.parse.urlencode({"period1": period1, "period2": period2, "interval": "1d"})
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?{params}"
-    payload = _http_json(url)
-    result = payload["chart"]["result"][0]
-    timestamps = result.get("timestamp", [])
-    quote = result["indicators"]["quote"][0]
-    frame = pd.DataFrame(
-        {
-            "timestamp": timestamps,
-            "open": quote.get("open", []),
-            "high": quote.get("high", []),
-            "low": quote.get("low", []),
-            "close": quote.get("close", []),
-            "volume": quote.get("volume", []),
-        }
-    )
-    if frame.empty:
-        return []
-
-    frame = frame.dropna(subset=["open", "high", "low", "close", "volume"])
-    if frame.empty:
-        return []
-
-    numeric_columns = ["open", "high", "low", "close", "volume"]
-    frame[numeric_columns] = frame[numeric_columns].apply(pd.to_numeric, errors="coerce")
-    frame = frame.dropna(subset=numeric_columns)
-    frame["date"] = pd.to_datetime(frame["timestamp"], unit="s", utc=True).dt.date
-    frame = frame[frame["date"] <= end_date]
-    frame = frame.tail(lookback_days)
-
-    bars: list[PriceBar] = []
-    for row in frame.itertuples(index=False):
-        bars.append(
-            PriceBar(
-                date=row.date.isoformat(),
-                open=round(float(row.open), 2),
-                high=round(float(row.high), 2),
-                low=round(float(row.low), 2),
-                close=round(float(row.close), 2),
-                volume=int(row.volume),
-            )
-        )
-    return bars
+    def query(start, end):
+        params = urllib.parse.urlencode({
+            "period1": int(datetime.combine(start, datetime.min.time(), market_zone).timestamp()),
+            "period2": int(datetime.combine(end, datetime.min.time(), market_zone).timestamp()),
+            "interval": "1d", "events": "splits"})
+        return _http_json(f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?{params}")
+    historical = query(start_date, end_date + timedelta(days=1))
+    verification = query(end_date, now.astimezone(market_zone).date() + timedelta(days=1))
+    bars = restore_cutoff_units(historical, verification, symbol, analysis_date, now)
+    return type(bars)(bars[-lookback_days:], bars.price_basis)
 
 
 def get_fundamentals(symbol: str) -> FundamentalSnapshot:

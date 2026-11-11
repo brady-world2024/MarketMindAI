@@ -45,6 +45,7 @@ class AnalysisRequest(BaseModel):
     anthropic_effort: Optional[str] = None
     checkpoint_enabled: bool = False
     human_feedback: str = ""
+    snapshot_id: Optional[str] = Field(default=None, pattern=r'^[0-9a-f]{32}$')
 
     @field_validator("ticker")
     @classmethod
@@ -201,6 +202,9 @@ class ReportSectionView(BaseModel):
 class RunSnapshot(BaseModel):
     run_id: str
     data_mode: Literal["live", "demo", "unknown"] = "unknown"
+    research_cutoff: Optional[dict] = None
+    data_snapshot: Optional[dict] = None
+    source_records: list[dict] = Field(default_factory=list)
     data_availability: Optional[dict] = None
     instrument_eligibility: Optional[dict] = None
     source_attempts: list[dict] = Field(default_factory=list)

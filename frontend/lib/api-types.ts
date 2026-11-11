@@ -72,6 +72,15 @@ export type ReportSection = {
 };
 
 export type RunSnapshot = {
+  research_cutoff?: { requested_date?: string; effective_session_date?: string; cutoff_at?: string;
+    cutoff_at_local?: string; market_timezone?: string; calendar_id?: string; calendar_version?: string } | null;
+  data_snapshot?: { snapshot_id?: string; manifest_sha256?: string; policy_version?: string;
+    processing_version?: string; format_version?: number } | null;
+  source_records?: { record_id: string; method?: string; provider?: string; publisher?: string | null;
+    price_basis?: { verified?: boolean; basis?: string; verification_through?: string; post_cutoff_split_factor?: number } | null;
+    admissibility?: "included" | "excluded" | "unverified"; reason_codes?: string[]; published_at?: string | null;
+    retrieved_at?: string; period_end?: string | null; accession?: string | null; source_url?: string | null;
+    raw_sha256?: string | null; raw_content_kind?: string; time_precision?: string; public_time_basis?: string | null }[];
   data_mode?: "live" | "demo" | "unknown";
   data_availability?: {
     can_recommend: boolean; ai_analysis_performed: boolean; missing: string[]; reason_codes?: string[];

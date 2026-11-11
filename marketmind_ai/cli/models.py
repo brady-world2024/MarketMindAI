@@ -37,6 +37,7 @@ class AnalyzeOptions:
     checkpoint_enabled: bool = False
     storage_root: str = ""
     emit_json: bool = False
+    snapshot_id: str | None = None
 
 
 @dataclass(frozen=True)

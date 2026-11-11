@@ -10,7 +10,7 @@ from typing import Any, Iterator
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from ..graph import MarketMindGraph
@@ -18,6 +18,7 @@ from ..symbols import SymbolResolution
 from .catalog import build_provider_catalog
 from .models import AnalysisRequest, RunCreatedResponse, ValidateKeyRequest, ValidateKeyResponse, ReviewRequest, ReviseRequest
 from ..graph.review import ReviewConflict
+from ..dataflows.source_store import SourceStore, SnapshotIntegrityError
 from .report_export import render_report_html
 from .runner import resolve_request_symbol, to_core_request
 from .symbols_router import router as symbols_router
@@ -235,7 +236,10 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.post("/api/reports", response_model=RunCreatedResponse)
     def create_run(request: AnalysisRequest) -> RunCreatedResponse:
         current_workflow = get_workflow()
-        resolved = resolve_request_symbol(request, current_workflow)
+        try:
+            resolved = resolve_request_symbol(request, current_workflow)
+        except SnapshotIntegrityError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         logger.info(
             "create_run_symbol_resolution %s",
             json.dumps(
@@ -294,7 +298,10 @@ def create_app(storage_root: str | None = None) -> FastAPI:
         except ReviewConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         child_request = AnalysisRequest.model_validate({**payload, "api_key": request.api_key})
-        resolved = resolve_request_symbol(child_request, current_workflow)
+        try:
+            resolved = resolve_request_symbol(child_request, current_workflow)
+        except SnapshotIntegrityError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         if resolved.status != "RESOLVED":
             raise HTTPException(status_code=422, detail=_resolution_http_detail(resolved))
         previous = current_workflow.archive.load(child_id)
@@ -312,6 +319,23 @@ def create_app(storage_root: str | None = None) -> FastAPI:
         return RunCreatedResponse(run_id=child_id, stream_url=f"/runs/{child_id}/stream",
                                   result_url=f"/runs/{child_id}/result", report_url=f"/runs/{child_id}/report",
                                   ticker_resolution=resolved)
+
+    @app.get("/api/snapshots/{snapshot_id}/sources/{record_id}")
+    def get_saved_source(snapshot_id: str, record_id: str) -> Response:
+        store = SourceStore(get_workflow().paths.root / 'sources')
+        try:
+            saved = store.load(snapshot_id)
+            record = next((record for record in saved.records if record.record_id == record_id), None)
+            if record is None or record.raw_sha256 is None:
+                raise HTTPException(status_code=404, detail="Saved source not found")
+            body = store.read_blob(record.raw_sha256)
+        except SnapshotIntegrityError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return Response(body, media_type='text/plain', headers={
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'; sandbox",
+            'Content-Disposition': f'attachment; filename="source-{record.raw_sha256}.txt"',
+        })
 
     @app.get("/runs/{run_id}")
     @app.get("/api/runs/{run_id}")

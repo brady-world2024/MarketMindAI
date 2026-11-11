@@ -481,6 +481,23 @@ function renderSourceAvailability(snapshot) {
   const data = snapshot.data_availability;
   const mode = snapshot.data_mode || "unknown";
   let html = `<h3>Data availability / 数据完整性</h3><p>Data mode: ${escapeHtml(mode)}</p>`;
+  const cutoff = snapshot.research_cutoff || {}, manifest = snapshot.data_snapshot || {};
+  html += '<h3>Research cutoff &amp; saved data</h3>';
+  if (!snapshot.research_cutoff || !manifest.snapshot_id) html += '<p>Snapshot provenance: Unverified · 未核验</p>';
+  html += [['Requested date', cutoff.requested_date], ['Effective session date', cutoff.effective_session_date],
+    ['Cutoff (UTC)', cutoff.cutoff_at], ['Cutoff (market local)', cutoff.cutoff_at_local], ['Market timezone', cutoff.market_timezone],
+    ['Snapshot ID', manifest.snapshot_id], ['Manifest SHA-256', manifest.manifest_sha256], ['Policy version', manifest.policy_version],
+    ['Processing version', manifest.processing_version]].map(([label, value]) => `<p>${label}: ${escapeHtml(value || 'Unverified')}</p>`).join('');
+  for (const status of ['included', 'excluded', 'unverified']) {
+    const records = (snapshot.source_records || []).filter(item => (item.admissibility || 'unverified') === status);
+    html += `<details><summary>${status[0].toUpperCase() + status.slice(1)} sources (${records.length})</summary>`;
+    for (const item of records) {
+      const metadata = Object.fromEntries(['record_id', 'method', 'provider', 'publisher', 'admissibility', 'reason_codes', 'published_at', 'time_precision', 'public_time_basis', 'period_end', 'accession', 'source_url', 'raw_content_kind', 'raw_sha256', 'price_basis'].map(key => [key, item[key] ?? 'Unverified']));
+      html += `<pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>`;
+      if (manifest.snapshot_id && item.record_id && item.raw_sha256) html += `<a href="/api/snapshots/${encodeURIComponent(manifest.snapshot_id)}/sources/${encodeURIComponent(item.record_id)}" download>Download saved source</a>`;
+    }
+    html += '</details>';
+  }
   if (mode === "unknown") html += '<p>Historical data mode and isolation have not been verified.</p>';
   if (mode === "demo") html += '<p>Demo · Synthetic sample data / 演示材料</p>';
   if (data?.ai_analysis_performed === false) html += '<p>No AI analysis · 未进行 AI 分析</p>';

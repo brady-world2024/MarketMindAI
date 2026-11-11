@@ -29,6 +29,50 @@ const provider = (value = 'openai') => ({ value, label: value, base_url: `https:
   quick_models: [{ value: 'quick-one', label: 'Quick one' }, { value: 'quick-two', label: 'Quick two' }],
   deep_models: [{ value: 'deep-one', label: 'Deep one' }] });
 
+test('snapshot provenance distinguishes admitted, excluded and unverified sources with safe downloads', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { DataSourcesPanel } = loadModule('components/data-sources-panel.tsx');
+  const html = renderToStaticMarkup(React.createElement(DataSourcesPanel, { apiBaseUrl: 'http://localhost:8000', snapshot: {
+    research_cutoff: { requested_date: '2026-07-04', effective_session_date: '2026-07-02', cutoff_at: '2026-07-02T20:00:00Z', cutoff_at_local: '2026-07-02T16:00:00-04:00', market_timezone: 'America/New_York' },
+    data_snapshot: { snapshot_id: 'snap1', manifest_sha256: 'hash1', policy_version: 'p2', processing_version: 'v2' },
+    source_records: ['included', 'excluded', 'unverified'].map((admissibility, i) => ({ record_id: `r${i}`, method: 'statement', provider: 'aggregator', publisher: 'SEC', admissibility, reason_codes: i ? ['public_time_unverified'] : [], published_at: i ? null : '2026-07-01T12:00:00Z', period_end: '2026-03-31', accession: '0001', source_url: 'https://sec.example/filing', raw_sha256: 'hash' })),
+  } }));
+  for (const value of ['2026-07-04', '2026-07-02', 'America/New_York', 'hash1', 'p2', 'v2', 'Included', 'Excluded', 'Unverified', 'public_time_unverified', 'aggregator', 'SEC', '2026-03-31', '0001']) assert.ok(html.includes(value), value);
+  assert.match(html, /http:\/\/localhost:8000\/api\/snapshots\/snap1\/sources\/r0/);
+  const legacy = renderToStaticMarkup(React.createElement(DataSourcesPanel, { snapshot: {} }));
+  assert.match(legacy, /Snapshot provenance: Unverified/);
+});
+
+test('replay preserves saved security, date and mode while isolating demo models and credentials', () => {
+  const { buildReplayRequest } = loadModule('lib/snapshot-replay.ts');
+  const saved = { ticker: 'NVDA', analysis_date: '2026-07-04', data_mode: 'demo', data_snapshot: { snapshot_id: 'saved' }, selected_analysts: ['market'], output_language: 'English' };
+  const live = { provider: 'openai', apiKey: 'secret', baseUrl: 'https://live.example', quickModel: 'q', deepModel: 'd', validationResult: { valid: true } };
+  const replay = buildReplayRequest(saved, live);
+  assert.equal(replay.ticker, 'NVDA'); assert.equal(replay.analysis_date, '2026-07-04');
+  assert.equal(replay.snapshot_id, 'saved'); assert.equal(replay.llm_provider, 'offline');
+  assert.equal(replay.api_key, null); assert.equal(replay.base_url, null);
+  assert.equal(replay.quick_model, 'heuristic-fast'); assert.equal(replay.deep_model, 'heuristic-deep');
+  assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, provider: 'offline' }), /live.*connection/i);
+  assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, validationResult: null }), /live.*connection/i);
+  assert.equal(buildReplayRequest({ ...saved, data_mode: 'live' }, live).api_key, 'secret');
+  assert.throws(() => buildReplayRequest({ ...saved, data_snapshot: null }, live), /snapshot.*unverified/i);
+});
+
+test('saved-data replay is available on complete and partial report source panels', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { DataSourcesPanel } = loadModule('components/data-sources-panel.tsx');
+  const snapshot = { data_snapshot: {snapshot_id: 'saved'}, data_mode: 'demo' };
+  const html = renderToStaticMarkup(React.createElement(DataSourcesPanel, {snapshot, onReplay() {}, replayBusy: false}));
+  assert.match(html, /Replay saved data/);
+  assert.match(html, /same saved evidence inputs/);
+  const busy = renderToStaticMarkup(React.createElement(DataSourcesPanel, {snapshot, onReplay() {}, replayBusy: true}));
+  assert.match(busy, /disabled=""/);
+  const legacy = renderToStaticMarkup(React.createElement(DataSourcesPanel, {snapshot: {}, onReplay() {}}));
+  assert.doesNotMatch(legacy, /Replay saved data/);
+});
+
 test('partial reports clearly show no AI analysis, missing requirements, and retained source material', () => {
   const React = require('../frontend/node_modules/react');
   const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');

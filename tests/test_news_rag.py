@@ -142,7 +142,7 @@ class TestNewsProviderHelpers(unittest.TestCase):
             macro_docs = get_global_news_documents_yfinance("2026-05-01", look_back_days=7, limit=5)
 
         self.assertEqual("company", company_docs[0]["scope"])
-        self.assertEqual("2026-04-30", company_docs[0]["published_at"])
+        self.assertEqual("2026-04-30T12:00:00+00:00", company_docs[0]["published_at"])
         self.assertEqual("macro", macro_docs[0]["scope"])
 
 
