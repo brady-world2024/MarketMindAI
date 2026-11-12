@@ -52,3 +52,11 @@ class StockstatsUtilsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_long_averages_require_their_full_history():
+    report = render_indicator_report(_sample_bars(50), ['close_50_sma', 'close_200_sma', 'rsi'])
+    values = dict(line.split(': ', 1) for line in report.splitlines())
+    assert values['close_50_sma'] != 'None'
+    assert values['close_200_sma'] == 'None'
+    assert values['rsi'] != 'None'

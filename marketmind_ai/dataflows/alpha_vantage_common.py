@@ -5,6 +5,7 @@ import os
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from .source_capture import capture_source_response
 
 
 class AlphaVantageRateLimitError(RuntimeError):
@@ -58,6 +59,7 @@ def _make_api_request(function: str, params: dict[str, str]) -> dict:
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         body = response.read().decode("utf-8")
+    capture_source_response(url, body, 'application/json')
     payload = json.loads(body)
     _raise_for_alpha_vantage_errors(payload)
     return payload

@@ -224,8 +224,8 @@ def render_indicator_report(bars: Iterable[PriceBar], indicators: list[str] | No
     requested = indicators or list(manual.keys())
     rendered = []
     for name in requested:
-        value = _stockstats_value(frame, name)
-        if value is None:
-            value = manual.get(name)
+        # Stockstats permits partial rolling windows. Known indicators use the
+        # explicit full-history formulas so missing periods remain unavailable.
+        value = manual[name] if name in manual else _stockstats_value(frame, name)
         rendered.append(f"{name}: {value}")
     return "\n".join(rendered)

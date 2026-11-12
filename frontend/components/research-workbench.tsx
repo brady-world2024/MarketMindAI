@@ -27,6 +27,7 @@ import { ReportHistory } from "./report-history";
 import { WorkbenchIcon } from "./workbench-icon";
 import { researchPhase } from "../lib/research-view";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { buildReplayRequest } from "../lib/snapshot-replay";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -295,7 +296,8 @@ function buildPrintableReport(snapshot: RunSnapshot): string {
       <section class="report-section"><h2>Data availability / 数据完整性</h2>
         <p>Data mode: ${escapeHtml(snapshot.data_mode ?? "unknown")}</p>
         ${snapshot.data_availability?.ai_analysis_performed === false ? "<p>No AI analysis · 未进行 AI 分析</p>" : ""}
-        <pre>${escapeHtml(JSON.stringify({availability: snapshot.data_availability, attempts: snapshot.source_attempts, materials: snapshot.source_materials}, null, 2))}</pre>
+        <p>${snapshot.research_cutoff && snapshot.data_snapshot?.snapshot_id ? "Saved snapshot provenance" : "Snapshot provenance: Unverified · 未核验"}</p>
+        <pre>${escapeHtml(JSON.stringify({research_cutoff: snapshot.research_cutoff, data_snapshot: snapshot.data_snapshot, source_records: snapshot.source_records, availability: snapshot.data_availability, attempts: snapshot.source_attempts, materials: snapshot.source_materials}, null, 2))}</pre>
       </section>
       ${renderedSections}
     </main>
@@ -586,11 +588,16 @@ export function ResearchWorkbench() {
     connectToStream(run);
   }
 
-  async function startRun() {
-    if (!selectedProvider || isRunning || reviewBusy) {
+  async function startRun(saved?: RunSnapshot) {
+    if ((!selectedProvider && !saved) || isRunning || reviewBusy) {
       return;
     }
-    if (analysts.length === 0) {
+    let replayRequest: ReturnType<typeof buildReplayRequest> | null = null;
+    if (saved) {
+      try { replayRequest = buildReplayRequest(saved, settings); }
+      catch (replayError) { setError(replayError instanceof Error ? replayError.message : "Unable to replay saved data."); return; }
+    }
+    if (!saved && analysts.length === 0) {
       setError("Select at least one analyst.");
       return;
     }
@@ -599,7 +606,7 @@ export function ResearchWorkbench() {
     const resolvedDeepModel = deepNeedsCustom ? deepCustom.trim() : deepModel;
     const resolvedLanguage = languageNeedsCustom ? customLanguage.trim() : outputLanguage;
 
-    if (!resolvedQuickModel || !resolvedDeepModel || !resolvedLanguage) {
+    if (!saved && (!resolvedQuickModel || !resolvedDeepModel || !resolvedLanguage)) {
       setError("Complete the model and output fields.");
       return;
     }
@@ -608,7 +615,7 @@ export function ResearchWorkbench() {
       tickerResolution?.status === "RESOLVED" && resolutionMatchesInput(tickerResolution, ticker)
         ? tickerResolution
         : null;
-    if (!normalizeQuery(ticker)) {
+    if (!saved && !normalizeQuery(ticker)) {
       setTickerError("Enter a company name or ticker to research.");
       return;
     }
@@ -626,12 +633,12 @@ export function ResearchWorkbench() {
     setTickerCandidates([]);
 
     try {
-      const response = await fetch(apiUrl("/runs"), {
+      const response = await fetch(apiUrl(saved ? "/api/runs" : "/runs"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(replayRequest ?? {
           ticker: resolvedTicker?.resolved_symbol ?? normalizeQuery(ticker),
           analysis_date: analysisDate,
           llm_provider: provider,
@@ -828,8 +835,10 @@ export function ResearchWorkbench() {
         <section className="workspace" aria-label="Research workspace" ref={workspaceRef} tabIndex={-1}>
           {(snapshot || isRunning) && <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
             onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
-          {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport} />}
-          {!hasResult && snapshot?.data_availability && <section className="panel resultPanel"><DataSourcesPanel snapshot={snapshot} /></section>}
+          {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport}
+            apiBaseUrl={API_BASE_URL} onReplay={() => void startRun(reportSnapshot)} replayBusy={isRunning || reviewBusy} />}
+          {!hasResult && snapshot && <section className="panel resultPanel"><DataSourcesPanel snapshot={snapshot} apiBaseUrl={API_BASE_URL}
+            onReplay={() => void startRun(snapshot)} replayBusy={isRunning || reviewBusy} /></section>}
           {hasResult && <HumanReviewPanel key={snapshot?.run_id} snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
             onOpenRun={openSavedRun} onBusyChange={setReviewBusy} onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)} onRevision={(run) => { if (activeRunRef.current === snapshot?.run_id) startRevision(run); }} />}
           {!snapshot && !isRunning && <>

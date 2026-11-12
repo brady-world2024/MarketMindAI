@@ -49,3 +49,13 @@ class CliPackageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_cli_snapshot_argument_reaches_core_request():
+    from marketmind_ai.cli.utils import build_analysis_request
+    identifier = 'a' * 32
+    with patch('marketmind_ai.cli.main.run_analyze', return_value=0) as run:
+        result = CliRunner().invoke(app, ['analyze', 'NVDA', '--date', '2026-06-13',
+            '--llm-provider', 'offline', '--snapshot-id', identifier])
+    assert result.exit_code == 0, result.stdout
+    assert build_analysis_request(run.call_args.args[0]).snapshot_id == identifier

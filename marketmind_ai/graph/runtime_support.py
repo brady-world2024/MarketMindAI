@@ -496,14 +496,18 @@ class GraphResearchEngine:
         return final_decision, reporting_payload
 
     def _reporting_payload(self, state, final_decision: PortfolioDecision) -> dict:
+        from ..dataflows.config import get_audit
+        audit = get_audit()
+        sources = audit.frozen_inputs.source_records if audit and audit.frozen_inputs else None
         verification = self._verification_payload(state, final_decision)
         structured = final_decision.model_dump(mode="json")
-        evidence_ledger = build_evidence_ledger(structured, analysis_date=state["trade_date"])
+        evidence_ledger = build_evidence_ledger(structured, analysis_date=state["trade_date"], source_records=sources)
         report_quality = ReportQualityScorer().score(
             final_state=self._final_state_for_verification(state, final_decision),
             structured_decision=structured,
             verification=verification,
             calibration_summary=state.get("calibration_summary"),
+            source_records=sources,
         )
         return {
             "verification": verification,

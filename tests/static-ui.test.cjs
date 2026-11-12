@@ -29,6 +29,16 @@ function app() {
   return { context, $, requests, sources, alerts };
 }
 
+test('static report shows frozen cutoff, source admission and unverified legacy provenance', () => {
+  const { context, $ } = app();
+  context.renderSourceAvailability({ research_cutoff: {requested_date: '2026-07-04', effective_session_date: '2026-07-02', cutoff_at: '2026-07-02T20:00:00Z', cutoff_at_local: '2026-07-02T16:00:00-04:00', market_timezone: 'America/New_York'},
+    data_snapshot: {snapshot_id: 'saved', manifest_sha256: 'hash', policy_version: 'p2', processing_version: 'v2'},
+    source_records: [{record_id: 'r1', method: 'income', provider: 'sec', publisher: 'SEC', admissibility: 'excluded', reason_codes: ['after_cutoff'], published_at: '2026-07-03T20:00:00Z', period_end: '2026-03-31', accession: '001', raw_sha256: 'hash'}] });
+  for (const value of ['2026-07-04', '2026-07-02', 'America/New_York', 'p2', 'v2', 'Excluded', 'after_cutoff', 'SEC', '001', '/api/snapshots/saved/sources/r1']) assert.ok($('sourceAvailability').innerHTML.includes(value), value);
+  context.renderSourceAvailability({});
+  assert.match($('sourceAvailability').innerHTML, /Snapshot provenance: Unverified/);
+});
+
 test('source isolation is visible and retained materials are safely rendered', () => {
   const { context, $ } = app();
   context.renderSnapshot({ run_id: 'partial', status: 'completed', ticker: 'ABC', provider: 'openai',

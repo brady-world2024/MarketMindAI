@@ -214,7 +214,7 @@ def _title_overlap_bonus(title: str, query_tokens: set[str]) -> float:
 
 def _recency_weight(published_at: str, curr_date: str) -> float:
     try:
-        published_dt = datetime.strptime(published_at, "%Y-%m-%d")
+        published_dt = datetime.strptime(published_at[:10], "%Y-%m-%d")
         current_dt = datetime.strptime(curr_date, "%Y-%m-%d")
     except ValueError:
         return 0.0

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List
+import re
 
 from ..config import DEFAULT_ANALYSTS, SUPPORTED_ANALYSTS, normalize_analyst_key
 
@@ -25,6 +26,7 @@ class AnalysisRequest:
     storage_root: str = ""
     checkpoint_enabled: bool = False
     human_feedback: str = ""
+    snapshot_id: str | None = None
 
     @classmethod
     def from_mapping(cls, payload: Dict[str, Any]) -> "AnalysisRequest":
@@ -59,6 +61,9 @@ class AnalysisRequest:
                 analysts.append(key)
         if not analysts:
             raise ValueError("at least one analyst must be selected")
+        snapshot_id = payload.get('snapshot_id') or None
+        if snapshot_id is not None and (not isinstance(snapshot_id, str) or not re.fullmatch(r'[0-9a-f]{32}', snapshot_id)):
+            raise ValueError('snapshot_id must identify a saved data snapshot')
         return cls(
             ticker=ticker,
             analysis_date=parsed.isoformat(),
@@ -76,4 +81,5 @@ class AnalysisRequest:
             storage_root=str(payload.get("storage_root") or "").strip(),
             checkpoint_enabled=bool(payload.get("checkpoint_enabled", False)),
             human_feedback=str(payload.get("human_feedback") or "").strip(),
+            snapshot_id=snapshot_id,
         )

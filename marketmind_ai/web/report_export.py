@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 import json
 from typing import Any
+from urllib.parse import quote
 
 
 def _meta_row(label: str, value: Any) -> str:
@@ -174,6 +175,31 @@ def _review_section(snapshot: dict[str, Any]) -> str:
     )
 
 
+def _provenance_section(snapshot: dict[str, Any]) -> str:
+    cutoff = snapshot.get('research_cutoff') or {}
+    manifest = snapshot.get('data_snapshot') or {}
+    rows = ''.join(_meta_row(label, data.get(key) or 'Unverified') for label, data, key in [
+        ('Requested date', cutoff, 'requested_date'), ('Effective session date', cutoff, 'effective_session_date'),
+        ('Cutoff (UTC)', cutoff, 'cutoff_at'), ('Cutoff (market local)', cutoff, 'cutoff_at_local'),
+        ('Market timezone', cutoff, 'market_timezone'), ('Snapshot ID', manifest, 'snapshot_id'),
+        ('Manifest SHA-256', manifest, 'manifest_sha256'), ('Policy version', manifest, 'policy_version'),
+        ('Processing version', manifest, 'processing_version'),
+    ])
+    warning = '' if cutoff and manifest.get('snapshot_id') else '<p>Snapshot provenance: Unverified · 未核验</p>'
+    result = f'<section class="report-section"><h2>Research Cutoff &amp; Saved Data</h2>{warning}{rows}</section>'
+    for status in ('included', 'excluded', 'unverified'):
+        records = [record for record in snapshot.get('source_records') or [] if (record.get('admissibility') or 'unverified') == status]
+        result += f'<section class="report-section"><h2>{status.title()} Sources ({len(records)})</h2>'
+        for record in records:
+            metadata = {key: record.get(key) for key in ('record_id', 'method', 'provider', 'publisher', 'admissibility', 'reason_codes', 'published_at', 'time_precision', 'public_time_basis', 'retrieved_at', 'period_end', 'accession', 'source_url', 'raw_content_kind', 'raw_sha256', 'price_basis')}
+            result += f'<pre>{escape(json.dumps(metadata, ensure_ascii=False, indent=2))}</pre>'
+            if manifest.get('snapshot_id') and record.get('record_id') and record.get('raw_sha256'):
+                url = '/api/snapshots/' + quote(str(manifest['snapshot_id']), safe='') + '/sources/' + quote(str(record['record_id']), safe='')
+                result += f'<a href="{escape(url, quote=True)}" download>Download saved source</a>'
+        result += '</section>'
+    return result
+
+
 def _source_sections(snapshot: dict[str, Any]) -> str:
     availability = snapshot.get('data_availability') or {}
     mode = snapshot.get('data_mode') or 'unknown'
@@ -185,7 +211,7 @@ def _source_sections(snapshot: dict[str, Any]) -> str:
     if mode == 'unknown':
         summary += 'Historical report: data mode and source isolation have not been verified.\n'
     summary += json.dumps(availability, ensure_ascii=False, indent=2)
-    result = _pre_section('Data Availability / 数据完整性', summary)
+    result = _provenance_section(snapshot) + _pre_section('Data Availability / 数据完整性', summary)
     for title, key in [('Source Attempts / 来源尝试', 'source_attempts'), ('Retained Source Materials / 已保留材料', 'source_materials')]:
         if snapshot.get(key):
             result += _pre_section(title, json.dumps(snapshot[key], ensure_ascii=False, indent=2))

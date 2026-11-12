@@ -287,3 +287,25 @@ def test_report_quality_score_flags_weak_or_stale_reports():
     assert result["grade"] == "Weak"
     assert "insufficient_evidence_count" in {issue["code"] for issue in result["issues"]}
     assert "stale_evidence" in {issue["code"] for issue in result["issues"]}
+
+
+def test_latest_admitted_sec_filing_uses_filing_policy_instead_of_generic_age():
+    from copy import deepcopy
+    from marketmind_ai.dataflows.source_records import SourceRecord
+    decision = deepcopy(STRUCTURED_DECISION)
+    evidence = decision['primary_evidence'][2]
+    evidence.update(provider='sec', url='https://www.sec.gov/Archives/filing/R2.htm', source_date='2026-02-27')
+    record = SourceRecord(method='get_income_statement', provider='sec', symbol='ABC', data_mode='live',
+        accession='0000000001-26-000001', filing_form='10-K', published_at='2026-02-27T19:00:00Z',
+        period_end='2025-12-31', source_url=evidence['url'], admissibility='included')
+    score = ReportQualityScorer().score(final_state={'trade_date': '2026-06-12'}, structured_decision=decision,
+        source_records=[record.to_dict()])
+    assert 'stale_evidence' not in {issue['code'] for issue in score['issues']}
+    ledger = build_evidence_ledger(decision, analysis_date='2026-06-12', source_records=[record.to_dict()])
+    assert ledger[2]['freshness'] == 'current'
+    assert ledger[2]['source_record_id'] == record.record_id
+    # A self-declared SEC source cannot obtain this exception without admission.
+    excluded = record.model_copy(update={'admissibility': 'excluded'})
+    score = ReportQualityScorer().score(final_state={'trade_date': '2026-06-12'}, structured_decision=decision,
+        source_records=[excluded.to_dict()])
+    assert 'stale_evidence' in {issue['code'] for issue in score['issues']}

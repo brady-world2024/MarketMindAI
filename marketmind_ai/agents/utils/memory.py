@@ -16,7 +16,24 @@ def matches_active_data_mode(record: dict) -> bool:
     if get_audit() is None:
         return True
     mode = get_config().get('data_mode')
-    return mode not in {'live', 'demo'} or record.get('data_mode', 'unknown') == mode
+    if mode in {'live', 'demo'} and record.get('data_mode', 'unknown') != mode:
+        return False
+    cutoff = get_audit().cutoff_at
+    if cutoff:
+        from ...dataflows.source_policy import POLICY_VERSION, PROCESSING_VERSION, aware_time
+        provenance = record.get('_research_provenance') or {}
+        data = provenance.get('data_snapshot') or {}
+        current, source, generated = aware_time(cutoff), aware_time(provenance.get('cutoff_at')), aware_time(provenance.get('finished_at'))
+        reviewed = aware_time(provenance.get('reviewed_at'))
+        if (not current or not source or not generated or source > current or generated > current
+                or not reviewed or reviewed > current
+                or data.get('policy_version') != POLICY_VERSION or data.get('processing_version') != PROCESSING_VERSION):
+            return False
+        if record.get('pending') is False:
+            outcome_time = aware_time(record.get('outcome_updated_at'))
+            if outcome_time is None or outcome_time > current:
+                return False
+    return True
 
 
 class MarketMindMemoryLog:
@@ -73,8 +90,27 @@ class MarketMindMemoryLog:
             record = json.loads(raw)
             snapshot = json.loads(raw_snapshot) if raw_snapshot else {}
             record['data_mode'] = snapshot.get('data_mode', 'unknown')
+            record['_research_provenance'] = {'finished_at': snapshot.get('finished_at'),
+                'reviewed_at': next((item.get('reviewed_at') for item in reversed((snapshot.get('review') or {}).get('history') or [])
+                                     if item.get('decision') == 'approve'), None),
+                'cutoff_at': (snapshot.get('research_cutoff') or {}).get('cutoff_at'),
+                'data_snapshot': snapshot.get('data_snapshot')}
             if not matches_active_data_mode(record):
                 continue
+            from ...dataflows.config import get_audit
+            audit = get_audit()
+            if audit and audit.cutoff_at:
+                from ...dataflows.source_store import SourceStore, snapshot_fingerprint
+                from ...dataflows.source_policy import aware_time
+                try:
+                    descriptor = snapshot['data_snapshot']
+                    saved = SourceStore(self._review_db_path.parent / 'sources').load(descriptor['snapshot_id'])
+                    if (snapshot_fingerprint(saved) != descriptor['manifest_sha256'] or
+                            aware_time(saved.created_at) > aware_time(snapshot['finished_at']) or
+                            saved.cutoff.get('cutoff_at') != snapshot['research_cutoff']['cutoff_at']):
+                        continue
+                except (KeyError, ValueError, TypeError):
+                    continue
             if column == "entry":
                 # The table identity also upgrades records written before run_id was in the JSON.
                 record["run_id"] = run_id
@@ -151,6 +187,8 @@ class MarketMindMemoryLog:
                         entry.update(pending=False, raw=f"{update['raw_return']:+.1%}",
                                      alpha=f"{update['alpha_return']:+.1%}", holding_days=f"{int(update['holding_days'])}d",
                                      reflection=str(update.get("reflection", "")).strip())
+                        from datetime import datetime, timezone
+                        entry['outcome_updated_at'] = datetime.now(timezone.utc).isoformat()
                         db.execute("UPDATE approved_memories SET entry=? WHERE run_id=?", (json.dumps(entry), run_id))
         if self._log_path is None or not self._log_path.exists():
             return

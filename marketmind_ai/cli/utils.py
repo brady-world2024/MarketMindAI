@@ -75,6 +75,7 @@ def build_analysis_request(options: AnalyzeOptions) -> AnalysisRequest:
         "research_depth": options.research_depth,
         "storage_root": options.storage_root,
         "checkpoint_enabled": options.checkpoint_enabled,
+        "snapshot_id": options.snapshot_id,
         "analysts": options.analysts or list(DEFAULT_CLI_ANALYSTS),
     }
     return AnalysisRequest.from_mapping(payload)

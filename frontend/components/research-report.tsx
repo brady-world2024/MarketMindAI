@@ -3,10 +3,11 @@ import { ReportText, revealEvidence } from "./report-text";
 import { WorkbenchIcon } from "./workbench-icon";
 import { DataSourcesPanel } from "./data-sources-panel";
 
-type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void };
+type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void;
+  apiBaseUrl?: string; onReplay?: () => void; replayBusy?: boolean };
 const REVIEW_LABELS = { pending: "Awaiting review", approved: "Approved", rejected: "Rejected", changes_requested: "Changes requested" };
 
-export function ResearchReport({ snapshot, onOpenReport, onExport }: Props) {
+export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, onReplay, replayBusy }: Props) {
   const decision = snapshot.final_structured_decision;
   const evidenceIds = (snapshot.evidence_ledger ?? []).map((item) => item.evidence_id).filter((id): id is string => !!id);
   const reasons = decision?.core_claims?.length ? decision.core_claims : (snapshot.evidence_ledger ?? []).slice(0, 3)
@@ -30,7 +31,7 @@ export function ResearchReport({ snapshot, onOpenReport, onExport }: Props) {
       <div><dt>AI provider</dt><dd>{snapshot.data_availability?.ai_analysis_performed === false ? "Not called" : snapshot.provider === "offline" ? "Offline demo" : snapshot.provider ?? "—"}</dd></div>
       <div><dt>Evidence items</dt><dd>{snapshot.evidence_ledger?.length ?? 0}</dd></div>
       <div><dt>Language</dt><dd>{snapshot.output_language ?? "—"}</dd></div></dl>
-    <DataSourcesPanel snapshot={snapshot} />
+    <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay} replayBusy={replayBusy} />
     {decision?.executive_summary || decision?.investment_thesis
       ? <p className="resultSummary">{decision.executive_summary || decision.investment_thesis}</p>
       : <ReportText text={snapshot.final_decision ?? "No final summary is available."} evidenceIds={evidenceIds} evidencePrefix={snapshot.run_id} />}

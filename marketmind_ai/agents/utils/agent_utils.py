@@ -7,11 +7,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from langchain_core.messages import HumanMessage, RemoveMessage
 
 from ...dataflows.interface import fetch_from_vendors, route_to_vendor
+from ...dataflows.config import get_audit
 from ...symbols import SymbolResolution, ValidationFlags
 from .core_stock_tools import build_core_stock_tools
 from .fundamental_data_tools import build_fundamental_data_tools
 from .news_data_tools import build_news_data_tools
-from .research_types import FundamentalSnapshot, IndicatorSet, MarketSnapshot, ResearchBundle
+from .research_types import FundamentalSnapshot, IndicatorSet, MarketSnapshot, ResearchBundle, MemoryEntry
 from .technical_indicators_tools import build_technical_indicator_tools
 
 if TYPE_CHECKING:
@@ -234,7 +235,9 @@ class AnalysisContext:
         headlines = fetch_from_vendors("get_news", upper, self.analysis_date, 8)
         news = headlines.value if headlines.available else []
         sentiment = sentiment_from_headlines(news)
-        memory = self.journal.recall(upper, 5)
+        audit = get_audit()
+        memory = ([MemoryEntry(**item) for item in audit.frozen_inputs.snapshot.memory_entries]
+                  if audit and audit.frozen_inputs is not None else self.journal.recall(upper, 5))
         resolution_payload = resolution or {
             "resolved_symbol": upper,
             "company_name": fundamentals.company_name,

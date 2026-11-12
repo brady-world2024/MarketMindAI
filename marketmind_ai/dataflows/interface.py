@@ -263,6 +263,12 @@ def get_fallback_vendors(method: str) -> List[str]:
 
 
 def invoke_vendor_method(method: str, vendor: str, *args, **kwargs):
+    audit = get_audit()
+    if audit is not None and audit.frozen_inputs is not None:
+        result = audit.frozen_inputs.read(method, *args, **kwargs)
+        if not result.available or result.provider != vendor:
+            raise DataUnavailableError(result)
+        return result.value
     if method not in VENDOR_METHODS or vendor not in VENDOR_METHODS[method]:
         raise DataConfigurationError("Requested provider does not support this method.")
     if vendor not in get_fallback_vendors(method):
@@ -329,6 +335,8 @@ def _cache_key(method: str, vendors: list[str], args: tuple, kwargs: dict, aggre
 def fetch_from_vendors(method: str, *args, aggregate: bool = False, **kwargs) -> VendorResult:
     """Fetch from explicitly configured providers with per-attempt provenance."""
     audit = get_audit()
+    if audit is not None and audit.frozen_inputs is not None:
+        return audit.frozen_inputs.read(method, *args, aggregate=aggregate, **kwargs)
     if audit is not None:
         # A copied thread context shares this collector. Serializing cache access
         # also prevents duplicate requests when tools race with the same args.
@@ -366,6 +374,9 @@ def _fetch_from_vendors(method, args, kwargs, aggregate, audit, *, selected_vend
     for provider in vendors:
         started = utc_now()
         attempt_id = str(uuid4())
+        previous_capture = audit.capture_context if audit else None
+        if audit:
+            audit.capture_context = (method, provider, attempt_id)
         try:
             # The sequence has been validated before any adapter is called.
             response = VENDOR_METHODS[method][provider](*args, **kwargs)
@@ -375,6 +386,9 @@ def _fetch_from_vendors(method, args, kwargs, aggregate, audit, *, selected_vend
         except Exception as exc:
             status, code, message = _failure_details(exc)
             response = None
+        finally:
+            if audit:
+                audit.capture_context = previous_capture
         finished = utc_now()
         count = len(response) if status == "success" and isinstance(response, (list, tuple, dict, set)) else (1 if status == "success" else None)
         attempt = SourceAttempt(attempt_id=attempt_id, run_id=audit.run_id if audit else None,
