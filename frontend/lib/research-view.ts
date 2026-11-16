@@ -17,6 +17,10 @@ export function researchPhase(snapshot: Partial<RunSnapshot> | null) {
     index = 0;
     label = "Data incomplete · No recommendation";
   }
+  if (snapshot?.job_status === "stopping") label = "Stopping research";
+  if (snapshot?.job_status === "cancelled") label = "Research cancelled";
+  if (snapshot?.job_status === "timed_out") label = "Research timed out";
+  if (snapshot?.job_status === "interrupted") label = "Research interrupted";
   return { index, label, failed: snapshot?.status === "error" };
 }
 

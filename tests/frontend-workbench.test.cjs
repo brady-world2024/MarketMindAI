@@ -258,3 +258,18 @@ test('legacy reports retain evidence and validation even without a human review 
   assert.match(html, /Automated checks: pass/);
   assert.doesNotMatch(html, /Approve report/);
 });
+
+test('research progress distinguishes stopping, cancellation and timeout', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchProgress } = loadModule('components/research-progress.tsx');
+  const render = (job_status, status) => renderToStaticMarkup(React.createElement(ResearchProgress, {
+    running: status === 'running', snapshot: {status, job_status}, streamState: 'live',
+    onCancel() {}, onReconnect() {},
+  }));
+  assert.match(render(undefined, 'running'), /Cancel research/);
+  assert.match(render('stopping', 'running'), /disabled=""[^>]*>Stopping/);
+  assert.match(render('cancelled', 'error'), /Research cancelled/);
+  assert.match(render('timed_out', 'error'), /Research timed out/);
+  assert.doesNotMatch(render('timed_out', 'error'), /Cancel research/);
+});

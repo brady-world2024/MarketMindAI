@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..run_control import check_running
+
 import json
 import os
 import urllib.parse
@@ -83,6 +85,7 @@ def _make_api_request(function: str, params: dict[str, str]) -> dict:
             "Accept": "application/json",
         },
     )
+    check_running()
     with urllib.request.urlopen(request, timeout=20) as response:
         body = response.read().decode("utf-8")
     return json.loads(body)

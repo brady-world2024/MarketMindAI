@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 import json
 
 from ...reporting.qualitative_verification import reference_catalog
@@ -51,7 +53,7 @@ def create_portfolio_manager(llm, offline_runtime, verifier_callback):
                 f"{get_language_instruction(state['output_language'])}"
             )
             if structured is not None:
-                decision = structured.invoke(prompt)
+                decision = invoke_model(structured, prompt)
             else:
                 research_plan = offline_runtime.offline_research_plan(state["selected_analysts"])
                 trader_plan = offline_runtime.offline_trader_proposal(research_plan)

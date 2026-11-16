@@ -1,6 +1,8 @@
 """Bind rating claims to saved source excerpts before an independent model review."""
 from __future__ import annotations
 
+from ..run_control import invoke_model
+
 import json
 import re
 from typing import Literal
@@ -123,7 +125,7 @@ def verify_active_claims(decision, model):
 
     def judge(claims):
         review = model.with_structured_output(ClaimVerdicts)
-        verdicts = review.invoke([
+        verdicts = invoke_model(review, [
             SystemMessage(content=(
                 "Independently classify every rating claim as supported, contradicted, or insufficient. "
                 "Only the supplied citations may support a claim, and every material part must follow from them. "

@@ -116,7 +116,8 @@ export type RunSnapshot = {
   source_materials?: {method: string; provider: string; retrieved_at?: string; content: unknown; source_url?: string | null}[];
   run_id: string;
   status: "queued" | "running" | "completed" | "error";
-  job_status?: "interrupted";
+  job_status?: "interrupted" | "stopping" | "cancelled" | "timed_out";
+  stop_reason?: "cancelled" | "timed_out";
   last_job_status?: "queued" | "running";
   original_input: string;
   ticker: string;

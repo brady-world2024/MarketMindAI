@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from ..utils.common import get_language_instruction
 
 
@@ -26,7 +28,7 @@ def _create_risk_node(stance: str, llm, offline_runtime):
                 f"Risk Debate So Far:\n{state['risk_debate_state'].get('history', '')}\n"
                 f"{get_language_instruction(state['output_language'])}"
             )
-            content = str(llm.invoke(prompt).content)
+            content = str(invoke_model(llm, prompt).content)
         line = f"{stance} Analyst: {content}"
         risk = state["risk_debate_state"]
         updated = {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..run_control import invoke_model
+
 from typing import Any
 
 
@@ -32,4 +34,4 @@ class Reflector:
                 f"Raw return: {raw_return:+.1%}\nAlpha vs SPY: {alpha_return:+.1%}\n\nFinal Decision:\n{final_decision}",
             ),
         ]
-        return str(self.quick_thinking_llm.invoke(messages).content)
+        return str(invoke_model(self.quick_thinking_llm, messages).content)

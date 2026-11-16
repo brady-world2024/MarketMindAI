@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from langchain_core.messages import AIMessage
 
 from ..schemas import TraderProposal, render_trader_proposal
@@ -44,7 +46,7 @@ def create_trader(llm, offline_runtime):
                     "trader_investment_plan": rendered,
                     "sender": "Trader",
                 }
-            proposal = structured.invoke(prompt)
+            proposal = invoke_model(structured, prompt)
         rendered = render_trader_proposal(proposal)
         return {
             "messages": [AIMessage(content=rendered)],
