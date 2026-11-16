@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from marketmind_ai.graph.marketmind_graph import MarketMindGraph
 from marketmind_ai.graph.request import AnalysisRequest
-from marketmind_ai.web.app import RUNS, create_app
+from marketmind_ai.web.app import create_app
 
 
 def request(**overrides):
@@ -169,8 +169,8 @@ def test_revision_links_feedback_fresh_checks_and_survives_restart(draft):
     child_id = child.json()["run_id"]
     assert client.get("/runs/review-test/result").json()["review"]["revision_run_id"] == child_id
     # Simulate restart: reserved child recovers from SQLite, without a credential or checkpoint.
-    with RUNS._lock:
-        RUNS._sessions.pop(child_id, None)
+    with client.app.state.runs._lock:
+        client.app.state.runs._sessions.pop(child_id, None)
     restart = TestClient(create_app(str(graph.paths.root)))
     class InlineThread:
         def __init__(self, target, args, **kwargs):
@@ -192,10 +192,10 @@ def test_revision_links_feedback_fresh_checks_and_survives_restart(draft):
 
 def test_durable_snapshot_wins_over_cached_session(draft):
     _, snapshot, client = draft
-    session = RUNS.create()
+    session = client.app.state.runs.create()
     session.run_id = "review-test"
-    with RUNS._lock:
-        RUNS._sessions["review-test"] = session
+    with client.app.state.runs._lock:
+        client.app.state.runs._sessions["review-test"] = session
     session.publish("snapshot", snapshot)
     accepted = client.post("/runs/review-test/review", json=review_payload(snapshot)).json()
     assert client.get("/runs/review-test").json() == accepted
@@ -267,7 +267,7 @@ def test_concurrent_revisions_reserve_one_child(draft):
 
 def test_completed_session_sse_replay_uses_current_review(draft):
     _, snapshot, client = draft
-    session, _ = RUNS.claim("review-test")
+    session, _ = client.app.state.runs.claim("review-test")
     session.publish("snapshot", snapshot)
     session.publish("complete", snapshot)
     session.finish()

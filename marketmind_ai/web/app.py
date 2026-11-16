@@ -6,7 +6,7 @@ import os
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,9 +18,11 @@ from ..symbols import SymbolResolution
 from .catalog import build_provider_catalog
 from .models import AnalysisRequest, RunCreatedResponse, ValidateKeyRequest, ValidateKeyResponse, ReviewRequest, ReviseRequest
 from ..graph.review import ReviewConflict
-from ..dataflows.source_store import SourceStore, SnapshotIntegrityError
+from ..dataflows.source_store import SourceStore, SnapshotIntegrityError, snapshot_fingerprint
+from ..dataflows.source_policy import aware_time
 from .report_export import render_report_html
-from .runner import resolve_request_symbol, to_core_request
+from .jobs import JobStore
+from .runner import SnapshotBuilder, iso_now, resolve_request_symbol, to_core_request
 from .symbols_router import router as symbols_router
 
 
@@ -38,6 +40,7 @@ def _allowed_origins() -> list[str]:
 class RunSession:
     def __init__(self, run_id: str):
         self.run_id = run_id
+        self.started_at = iso_now()
         self._condition = threading.Condition()
         self._history: list[dict[str, Any]] = []
         self._latest_snapshot: dict[str, Any] | None = None
@@ -77,17 +80,25 @@ class RunSession:
 
 
 class RunRegistry:
-    def __init__(self):
+    def __init__(self, capacity: int = 2):
+        self._capacity = capacity
         self._sessions: dict[str, RunSession] = {}
         self._lock = threading.Lock()
 
     def create(self) -> RunSession:
-        return self.claim(uuid.uuid4().hex[:12])[0]
+        session, _ = self.claim(uuid.uuid4().hex[:12])
+        assert session is not None
+        return session
 
-    def claim(self, run_id: str, *, retry_finished: bool = False) -> tuple[RunSession, bool]:
+    def claim(self, run_id: str, *, can_start: Callable[[], bool] | None = None) -> tuple[RunSession | None, bool]:
         with self._lock:
-            if run_id in self._sessions and not (retry_finished and self._sessions[run_id]._done):
+            if run_id in self._sessions:
                 return self._sessions[run_id], False
+            if can_start is not None and not can_start():
+                return None, False
+            if len(self._sessions) >= self._capacity:
+                raise HTTPException(status_code=503, detail="Two research jobs are already running. Try again when one finishes.",
+                                    headers={"Retry-After": "10"})
             session = RunSession(run_id)
             self._sessions[run_id] = session
             return session, True
@@ -96,8 +107,12 @@ class RunRegistry:
         with self._lock:
             return self._sessions.get(run_id)
 
+    def discard(self, session: RunSession) -> None:
+        with self._lock:
+            if self._sessions.get(session.run_id) is session:
+                self._sessions.pop(session.run_id)
 
-RUNS = RunRegistry()
+
 AnalysisThread = threading.Thread
 
 
@@ -114,14 +129,41 @@ def _load_persisted_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str
     return workflow.archive.load(run_id)
 
 
-def _resolve_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str, Any] | None:
+def _recover_interrupted(workflow: MarketMindGraph, job: dict) -> dict:
+    if job.get("job_status") != "interrupted" or job.get("data_snapshot"):
+        return job
+    store = SourceStore(workflow.paths.root / "sources")
+    saved = store.find_for_run(job["run_id"], symbol=job["ticker"], data_mode=job["data_mode"],
+                               requested_date=job["analysis_date"], started_at=job.get("started_at"))
+    if saved is None:
+        return job
+    return {**job, "research_cutoff": saved.cutoff, "data_snapshot": {
+        "snapshot_id": saved.snapshot_id, "manifest_sha256": snapshot_fingerprint(saved),
+        "policy_version": saved.policy_version, "processing_version": saved.processing_version,
+        "format_version": saved.format_version, "origin_run_id": saved.origin_run_id,
+    }, "latest_update": "Use the saved data to run this research again."}
+
+
+def _archived_or_interrupted(workflow: MarketMindGraph, run_id: str, job: dict | None) -> dict | None:
+    archived = _load_persisted_snapshot(workflow, run_id)
+    if job and job.get("job_status") == "interrupted":
+        finished = aware_time((archived or {}).get("finished_at"))
+        started = aware_time(job.get("started_at"))
+        if archived is None or (archived.get("status") == "error"
+                                and (not finished or (started and finished < started))):
+            return _recover_interrupted(workflow, job)
+    return archived or job
+
+
+def _resolve_snapshot(workflow: MarketMindGraph, run_id: str, runs: RunRegistry, jobs: JobStore) -> dict[str, Any] | None:
     durable = workflow.reviews.load(run_id)
     if durable is not None:
         return durable
-    session = RUNS.get(run_id)
-    if session is not None and session.latest_snapshot is not None:
-        return session.latest_snapshot
-    return _load_persisted_snapshot(workflow, run_id)
+    session = runs.get(run_id)
+    job = jobs.get(run_id)
+    if session is not None:
+        return session.latest_snapshot or job
+    return _archived_or_interrupted(workflow, run_id, job)
 
 
 def _resolution_http_detail(resolved: SymbolResolution) -> dict[str, Any]:
@@ -132,18 +174,35 @@ def _resolution_http_detail(resolved: SymbolResolution) -> dict[str, Any]:
     }
 
 
-def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request: AnalysisRequest, resolution: SymbolResolution) -> None:
+def _safe_run_error(payload: dict) -> None:
+    if payload.get("error") != "AI connection could not be initialized. Check provider credentials and settings.":
+        payload["error"] = "Analysis failed. Check the provider connection and try again."
+
+
+def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request: AnalysisRequest,
+                         resolution: SymbolResolution, jobs: JobStore, runs: RunRegistry) -> None:
+    archived = False
+    last_progress = None
     try:
         core_request = to_core_request(request)
         for snapshot in workflow.stream(core_request, run_id=session.run_id):
             payload = snapshot.to_dict()
+            if payload["status"] == "error":
+                _safe_run_error(payload)
+            if request.snapshot_id and not payload.get("data_snapshot"):
+                payload["data_snapshot"] = {"snapshot_id": request.snapshot_id}
+            progress = (payload["status"], payload.get("current_agent"), payload.get("data_snapshot"))
+            if progress != last_progress and payload["status"] in {"queued", "running"}:
+                jobs.save({**payload, "started_at": session.started_at}, request.api_key)
+                last_progress = progress
             session.publish("snapshot", payload)
         final_snapshot = session.latest_snapshot
-        if final_snapshot is not None:
+        if final_snapshot and final_snapshot["status"] in {"completed", "error"}:
             _persist_snapshot(workflow, session.run_id, final_snapshot)
+            archived = True
             session.publish("complete", final_snapshot)
-    except Exception as exc:
-        latest = session.latest_snapshot or {
+    except Exception:
+        latest = dict(session.latest_snapshot or {
             "run_id": session.run_id,
             "status": "error",
             "original_input": request.ticker,
@@ -164,29 +223,73 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
             "reports": [],
             "final_signal": None,
             "final_decision": None,
-            "error": str(exc),
-        }
+        })
         latest["status"] = "error"
-        latest["error"] = str(exc)
+        _safe_run_error(latest)
+        latest["finished_at"] = iso_now()
         latest["latest_update"] = "Analysis failed."
         _persist_snapshot(workflow, session.run_id, latest)
         session.publish("snapshot", latest)
-        session.publish("error", {"message": str(exc)})
+        archived = True
+        session.publish("error", {"message": latest["error"]})
     finally:
         session.finish()
+        try:
+            if archived:
+                jobs.remove(session.run_id)
+            else:
+                jobs.mark_interrupted(session.run_id)
+        finally:
+            runs.discard(session)
 
 
 def create_app(storage_root: str | None = None) -> FastAPI:
     resolved_storage_root = Path(storage_root).expanduser() if storage_root else None
     workflow: MarketMindGraph | None = None
+    jobs: JobStore | None = None
+    runs = RunRegistry()
+    initialization_lock = threading.Lock()
 
     def get_workflow() -> MarketMindGraph:
         nonlocal workflow
-        if workflow is None:
-            workflow = MarketMindGraph(storage_root=resolved_storage_root)
-        return workflow
+        with initialization_lock:
+            if workflow is None:
+                workflow = MarketMindGraph(storage_root=resolved_storage_root)
+            return workflow
+
+    def get_jobs() -> JobStore:
+        nonlocal jobs
+        root = get_workflow().paths.root
+        with initialization_lock:
+            if jobs is None:
+                jobs = JobStore(root)
+            return jobs
+
+    def launch(session: RunSession, request: AnalysisRequest, resolution: SymbolResolution):
+        store = None
+        try:
+            store = get_jobs()
+            queued = SnapshotBuilder(session.run_id, request, resolution).snapshot.model_dump(mode="json")
+            queued["started_at"] = session.started_at
+            queued["data_mode"] = "demo" if request.llm_provider == "offline" else "live"
+            if request.snapshot_id:
+                queued["data_snapshot"] = {"snapshot_id": request.snapshot_id}
+            store.save(queued, request.api_key)
+            worker = AnalysisThread(target=_run_analysis_thread,
+                                    args=(session, get_workflow(), request, resolution, store, runs), daemon=True)
+            worker.start()
+        except Exception:
+            session.publish("error", {"message": "Unable to start research. Try again."})
+            session.finish()
+            try:
+                if store is not None:
+                    store.remove(session.run_id)
+            finally:
+                runs.discard(session)
+            raise HTTPException(status_code=503, detail="Unable to start research. Try again.") from None
 
     app = FastAPI(title="MarketMind AI Web", version="0.2.0")
+    app.state.runs = runs
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_allowed_origins(),
@@ -255,13 +358,8 @@ def create_app(storage_root: str | None = None) -> FastAPI:
         )
         if resolved.status != "RESOLVED":
             raise HTTPException(status_code=422, detail=_resolution_http_detail(resolved))
-        session = RUNS.create()
-        worker = AnalysisThread(
-            target=_run_analysis_thread,
-            args=(session, current_workflow, request, resolved),
-            daemon=True,
-        )
-        worker.start()
+        session = runs.create()
+        launch(session, request, resolved)
         return RunCreatedResponse(
             run_id=session.run_id,
             stream_url=f"/runs/{session.run_id}/stream",
@@ -304,18 +402,13 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         if resolved.status != "RESOLVED":
             raise HTTPException(status_code=422, detail=_resolution_http_detail(resolved))
-        previous = current_workflow.archive.load(child_id)
-        if previous is None or previous.get("status") == "error":
-            session, claimed = RUNS.claim(child_id, retry_finished=previous is not None)
-            if claimed:
-                worker = AnalysisThread(target=_run_analysis_thread,
-                                        args=(session, current_workflow, child_request, resolved), daemon=True)
-                try:
-                    worker.start()
-                except Exception:
-                    with RUNS._lock:
-                        RUNS._sessions.pop(child_id, None)
-                    raise
+        def revision_can_start() -> bool:
+            previous = current_workflow.archive.load(child_id)
+            return previous is None or previous.get("status") == "error"
+
+        session, claimed = runs.claim(child_id, can_start=revision_can_start)
+        if claimed and session is not None:
+            launch(session, child_request, resolved)
         return RunCreatedResponse(run_id=child_id, stream_url=f"/runs/{child_id}/stream",
                                   result_url=f"/runs/{child_id}/result", report_url=f"/runs/{child_id}/report",
                                   ticker_resolution=resolved)
@@ -337,12 +430,23 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             'Content-Disposition': f'attachment; filename="source-{record.raw_sha256}.txt"',
         })
 
+    @app.get("/api/jobs")
+    def get_interrupted_jobs(status: Literal["interrupted"] = "interrupted") -> JSONResponse:
+        current_workflow = get_workflow()
+        store = get_jobs()
+        interrupted = []
+        for job in store.interrupted():
+            resolved = _archived_or_interrupted(current_workflow, job["run_id"], job)
+            if resolved and resolved.get("job_status") == "interrupted":
+                interrupted.append(resolved)
+        return JSONResponse(interrupted)
+
     @app.get("/runs/{run_id}")
     @app.get("/api/runs/{run_id}")
     def get_run_snapshot(run_id: str) -> JSONResponse:
-        latest = _resolve_snapshot(get_workflow(), run_id)
+        latest = _resolve_snapshot(get_workflow(), run_id, runs, get_jobs())
         if latest is None:
-            session = RUNS.get(run_id)
+            session = runs.get(run_id)
             if session is None:
                 raise HTTPException(status_code=404, detail="Run not found")
             return JSONResponse({"status": "queued", "run_id": run_id})
@@ -351,7 +455,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.get("/runs/{run_id}/result")
     @app.get("/api/runs/{run_id}/result")
     def get_run_result(run_id: str) -> JSONResponse:
-        latest = _resolve_snapshot(get_workflow(), run_id)
+        latest = _resolve_snapshot(get_workflow(), run_id, runs, get_jobs())
         if latest is None:
             raise HTTPException(status_code=404, detail="Run not found")
         if latest.get("status") not in {"completed", "error"}:
@@ -361,7 +465,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.get("/runs/{run_id}/report", response_class=HTMLResponse)
     @app.get("/api/runs/{run_id}/report", response_class=HTMLResponse)
     def get_run_report(run_id: str, autoprint: bool = Query(default=False)) -> HTMLResponse:
-        latest = _resolve_snapshot(get_workflow(), run_id)
+        latest = _resolve_snapshot(get_workflow(), run_id, runs, get_jobs())
         if latest is None:
             raise HTTPException(status_code=404, detail="Run not found")
         return HTMLResponse(render_report_html(latest, autoprint=autoprint))
@@ -369,10 +473,10 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.get("/runs/{run_id}/stream")
     @app.get("/api/runs/{run_id}/stream")
     def stream_run_events(run_id: str) -> StreamingResponse:
-        session = RUNS.get(run_id)
+        session = runs.get(run_id)
         durable = get_workflow().reviews.load(run_id)
         if session is None or durable is not None:
-            persisted = durable or _load_persisted_snapshot(get_workflow(), run_id)
+            persisted = durable or _resolve_snapshot(get_workflow(), run_id, runs, get_jobs())
             if persisted is None:
                 raise HTTPException(status_code=404, detail="Run not found")
 

@@ -26,12 +26,26 @@ def test_api_replays_without_symbol_network_and_serves_only_safe_verified_source
         def start(self):
             self.target(*self.args)
 
-    monkeypatch.setattr('marketmind_ai.web.app.AnalysisThread', ImmediateThread)
-    client = TestClient(create_app(str(tmp_path)))
+    class QueuedThread:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
     payload = {'ticker': 'NVDA', 'analysis_date': '2026-06-13', 'llm_provider': 'offline',
                'quick_model': 'offline-draft', 'deep_model': 'offline-reasoner', 'snapshot_id': identifier}
-    response = client.post('/api/runs', json=payload)
+    monkeypatch.setattr('marketmind_ai.web.app.AnalysisThread', QueuedThread)
+    original_client = TestClient(create_app(str(tmp_path)))
+    queued = original_client.post('/api/runs', json=payload)
+    assert queued.status_code == 200
+    monkeypatch.setattr('marketmind_ai.web.app.AnalysisThread', ImmediateThread)
+    client = TestClient(create_app(str(tmp_path)))
+    recovered = client.get(queued.json()['result_url']).json()
+    assert recovered['job_status'] == 'interrupted'
+    response = client.post('/api/runs', json={**payload, 'snapshot_id': recovered['data_snapshot']['snapshot_id']})
     assert response.status_code == 200, response.text
+    assert response.json()['run_id'] != queued.json()['run_id']
     result = client.get(response.json()['result_url']).json()
     assert result['data_snapshot'] == first['data_snapshot']
     assert result['status'] == 'completed'

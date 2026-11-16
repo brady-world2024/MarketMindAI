@@ -91,6 +91,29 @@ class SourceStore:
         self._write_once(self.snapshots / f'{identifier}.json', envelope)
         return digest
 
+    def find_for_run(self, run_id: str, *, symbol: str, data_mode: str,
+                     requested_date: str, started_at: str | None) -> ResearchDataSnapshot | None:
+        """Recover a manifest committed just before the job recorded its snapshot ID."""
+        from .source_policy import aware_time
+
+        started = aware_time(started_at)
+        if started is None:
+            return None
+        matches = []
+        for path in self.snapshots.glob("*.json"):
+            try:
+                candidate = json.loads(path.read_text(encoding="utf-8"))["snapshot"]
+                if candidate.get("origin_run_id") != run_id:
+                    continue
+                saved = self.load(path.stem)
+                created = aware_time(saved.created_at)
+                if (saved.symbol == symbol and saved.data_mode == data_mode
+                        and saved.cutoff.get("requested_date") == requested_date and created and created >= started):
+                    matches.append(saved)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
+                continue
+        return matches[0] if len(matches) == 1 else None
+
     def load(self, snapshot_id: str) -> ResearchDataSnapshot:
         identifier = self._identifier(snapshot_id, 32)
         try:
