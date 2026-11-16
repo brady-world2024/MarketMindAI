@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -55,6 +55,13 @@ class CoreClaim(BaseModel):
         return self
 
 
+class FinancialClaim(BaseModel):
+    metric: Literal["revenue_yoy", "operating_margin"]
+    percentage: str = Field(pattern=r"^[+-]?\d{1,6}(?:\.\d{1,6})?$",
+                            description="Signed percentage as a decimal string, preserving declared precision.")
+    period_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class EvidenceItem(BaseModel):
     claim: str = Field(description="What this evidence supports.")
     evidence_type: EvidenceKind = Field(description="Whether the item is a Fact or a Judgment.")
@@ -68,6 +75,8 @@ class EvidenceItem(BaseModel):
     source_type: str = Field(default="", description="Source class such as price, news, filing, or fundamentals.")
     retrieved_at: str = Field(default="", description="Timestamp when the evidence source was retrieved.")
     raw_source_id: str = Field(default="", description="Stable provider-native or internal source identifier.")
+
+    financial_claim: FinancialClaim | None = None
 
     @model_validator(mode="after")
     def validate_non_empty_fields(self) -> "EvidenceItem":

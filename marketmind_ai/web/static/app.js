@@ -482,6 +482,11 @@ function renderSourceAvailability(snapshot) {
   const mode = snapshot.data_mode || "unknown";
   let html = `<h3>Data availability / 数据完整性</h3><p>Data mode: ${escapeHtml(mode)}</p>`;
   const cutoff = snapshot.research_cutoff || {}, manifest = snapshot.data_snapshot || {};
+  const financialChecks = snapshot.report_verification?.financial_claims || [];
+  if (financialChecks.length) {
+    html += '<details><summary>Financial claim verification</summary><pre>'
+      + escapeHtml(JSON.stringify(financialChecks, null, 2)) + '</pre></details>';
+  }
   html += '<h3>Research cutoff &amp; saved data</h3>';
   if (!snapshot.research_cutoff || !manifest.snapshot_id) html += '<p>Snapshot provenance: Unverified · 未核验</p>';
   html += [['Requested date', cutoff.requested_date], ['Effective session date', cutoff.effective_session_date],

@@ -212,6 +212,9 @@ def _source_sections(snapshot: dict[str, Any]) -> str:
         summary += 'Historical report: data mode and source isolation have not been verified.\n'
     summary += json.dumps(availability, ensure_ascii=False, indent=2)
     result = _provenance_section(snapshot) + _pre_section('Data Availability / 数据完整性', summary)
+    financial_checks = (snapshot.get('report_verification') or {}).get('financial_claims')
+    if financial_checks:
+        result += _pre_section('Financial Claim Verification', json.dumps(financial_checks, ensure_ascii=False, indent=2))
     for title, key in [('Source Attempts / 来源尝试', 'source_attempts'), ('Retained Source Materials / 已保留材料', 'source_materials')]:
         if snapshot.get(key):
             result += _pre_section(title, json.dumps(snapshot[key], ensure_ascii=False, indent=2))
