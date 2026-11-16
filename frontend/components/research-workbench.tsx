@@ -331,6 +331,7 @@ export function ResearchWorkbench() {
   const [researchDepth, setResearchDepth] = useState(1);
   const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [interruptedRuns, setInterruptedRuns] = useState<RunSnapshot[]>([]);
   const [libraryOpen, setLibraryOpen] = useState(false);
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -347,6 +348,15 @@ export function ResearchWorkbench() {
     const today = todayIso();
     setCurrentDate(today);
     setAnalysisDate(today);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(apiUrl("/api/jobs?status=interrupted"), { signal: controller.signal })
+      .then(response => response.ok ? response.json() : [])
+      .then((jobs: RunSnapshot[]) => { if (!controller.signal.aborted) setInterruptedRuns(jobs); })
+      .catch(() => {});
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -833,6 +843,23 @@ export function ResearchWorkbench() {
           </section>
         </aside>
         <section className="workspace" aria-label="Research workspace" ref={workspaceRef} tabIndex={-1}>
+          {!isRunning && interruptedRuns.length > 0 && (
+            <details className="panel reviewDetails">
+              <summary>Interrupted research ({interruptedRuns.length})</summary>
+              <ul>{interruptedRuns.map(job => (
+                <li key={job.run_id}>
+                  <button className="reviewTextButton" type="button" onClick={() => void openSavedRun(job.run_id)
+                    .catch((cause: Error) => setError(cause.message))}>
+                    {job.ticker} · {job.analysis_date}
+                  </button>
+                  {job.data_snapshot?.snapshot_id ? " · Saved data available" : " · No saved data"}
+                </li>
+              ))}</ul>
+            </details>
+          )}
+          {snapshot?.job_status === "interrupted" && !isRunning && (
+            <p className="summaryLine">{snapshot.current_agent && `Last recorded stage: ${snapshot.current_agent}`}</p>
+          )}
           {(snapshot || isRunning) && <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
             onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
           {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport}

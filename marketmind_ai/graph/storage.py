@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -14,6 +15,18 @@ from .decision import FinalDecision
 from .snapshot import RunSnapshot
 
 
+def _write_snapshot(path: Path, payload: dict) -> None:
+    # Publish the complete file at once so a stopped worker cannot leave a half-written report.
+    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.close()
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 class RunArchive:
     def __init__(self, paths: AppPaths) -> None:
         self.paths = paths
@@ -21,12 +34,12 @@ class RunArchive:
 
     def save(self, snapshot: RunSnapshot) -> Path:
         path = self.paths.runs_dir / f"{snapshot.run_id}.json"
-        path.write_text(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_snapshot(path, snapshot.to_dict())
         return path
 
     def save_web_snapshot(self, run_id: str, payload: dict[str, Any]) -> Path:
         path = self.paths.web_runs_dir / f"{run_id}.json"
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_snapshot(path, payload)
         return path
 
     def save_state_log(self, ticker: str, analysis_date: str, state: dict[str, Any]) -> Path:
@@ -40,11 +53,18 @@ class RunArchive:
         durable = ReviewStore(self.paths.root / "reviews.sqlite3").load(run_id)
         if durable is not None:
             return durable
+        from ..dataflows.source_policy import aware_time
+
+        snapshots = []
         for directory in (self.paths.runs_dir, self.paths.web_runs_dir):
             path = directory / f"{run_id}.json"
             if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
-        return None
+                snapshots.append(json.loads(path.read_text(encoding="utf-8")))
+        if len(snapshots) == 2 and snapshots[0].get("status") == snapshots[1].get("status") == "error":
+            first, second = (aware_time(snapshot.get("finished_at")) for snapshot in snapshots)
+            if second and (not first or second > first):
+                return snapshots[1]
+        return snapshots[0] if snapshots else None
 
 
 class DecisionJournal:

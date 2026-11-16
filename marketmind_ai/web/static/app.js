@@ -420,6 +420,7 @@ function renderRunProgress(snapshot) {
   if (snapshot.status === "completed") phase = snapshot.review?.status === "approved" ? "Complete · human review approved"
     : snapshot.review?.status === "changes_requested" ? "Human review · changes requested"
     : snapshot.review?.status === "rejected" ? "Human review · report rejected" : "Awaiting human review";
+  else if (snapshot.job_status === "interrupted") phase = `Run interrupted · ${snapshot.latest_update}`;
   else if (snapshot.status === "error") phase = `Run failed · ${snapshot.error || snapshot.latest_update || "See activity for details"}`;
   else if (active) phase = `In progress · ${active.label}`;
   else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
@@ -448,7 +449,7 @@ function renderRunProgress(snapshot) {
     return `<li data-phase-status="${status}"><span>${label}</span><small>${status}</small></li>`;
   }).join("") + `<li data-phase-status="${snapshot.report_verification?.status === "failed" ? "Failed" : snapshot.report_verification ? "Complete" : "Waiting"}"><span>Validation</span><small>${escapeHtml(snapshot.report_verification?.status || "Waiting")}</small></li>` + `<li data-phase-status="${reviewPhase}"><span>Human review</span><small>${reviewStatus}</small></li>`;
   if (["completed", "error"].includes(snapshot.status)) {
-    $("streamStatus").textContent = snapshot.status === "error" ? "Run failed" : "Run complete";
+    $("streamStatus").textContent = snapshot.job_status === "interrupted" ? "Run interrupted" : snapshot.status === "error" ? "Run failed" : "Run complete";
   }
 }
 

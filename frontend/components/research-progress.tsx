@@ -23,7 +23,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect }
     && snapshot?.data_availability?.can_recommend === false;
   return <section className="panel progressPanel" aria-labelledby="progress-title">
     <div className="sectionHeader compact"><div><p className="sectionKicker">Research progress</p>
-      <h2 id="progress-title">{running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
+      <h2 id="progress-title">{snapshot?.job_status === "interrupted" ? "Research interrupted" : running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
       <span className="elapsedTime"><WorkbenchIcon name="clock" size={14} />{elapsedTime(snapshot, now)}</span></div>
     {noAnalysis ? <p className="offlineNotice">Preflight stopped · AI research stages skipped. 未进行 AI 分析。</p> : <ol className="phaseSteps" aria-label="Research stages">{RESEARCH_PHASES.map((label, index) => <li key={label}
       className={`${index < phase.index || reviewComplete && index === 4 ? "done" : ""} ${index === phase.index && !reviewComplete ? "current" : ""} ${phase.failed && index === phase.index ? "failed" : ""}`}
