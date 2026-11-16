@@ -107,6 +107,23 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
             {snapshot?.report_quality && ` · Quality: ${snapshot.report_quality.grade ?? "Unscored"} (${snapshot.report_quality.score ?? "—"}/100)`}</p>
           {snapshot?.report_quality?.summary && <p>{snapshot.report_quality.summary}</p>}
           {issues.length > 0 && <ul>{issues.map((issue, i) => <li key={`${issue.code}-${i}`}>{issue.message ?? issue.code}</li>)}</ul>}
+          {(snapshot?.report_verification?.qualitative_claims ?? []).map(check => (
+            <details className="reviewDetails" key={check.claim_number}>
+              <summary>{check.claim} · {check.status}</summary>
+              <p>{check.reason}</p>
+              {check.citations.map((citation, index) => (
+                <div key={index}>
+                  <blockquote>{citation.quote}</blockquote>
+                  <p>{citation.provider} · {citation.published_at}</p>
+                  {snapshot?.data_snapshot?.snapshot_id && (
+                    <a href={`${apiBaseUrl}/api/snapshots/${encodeURIComponent(snapshot.data_snapshot.snapshot_id)}/sources/${encodeURIComponent(citation.record_id)}`} download>
+                      Download saved source
+                    </a>
+                  )}
+                </div>
+              ))}
+            </details>
+          ))}
           {(snapshot?.report_verification?.financial_claims ?? []).map((check, index) => (
             <details className="reviewDetails" key={index}>
               <summary>{check.metric === "revenue_yoy" ? "Revenue year over year" : "Operating margin"} · {check.status}</summary>
