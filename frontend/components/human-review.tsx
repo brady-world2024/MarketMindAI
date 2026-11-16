@@ -107,6 +107,26 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
             {snapshot?.report_quality && ` · Quality: ${snapshot.report_quality.grade ?? "Unscored"} (${snapshot.report_quality.score ?? "—"}/100)`}</p>
           {snapshot?.report_quality?.summary && <p>{snapshot.report_quality.summary}</p>}
           {issues.length > 0 && <ul>{issues.map((issue, i) => <li key={`${issue.code}-${i}`}>{issue.message ?? issue.code}</li>)}</ul>}
+          {(snapshot?.report_verification?.financial_claims ?? []).map((check, index) => (
+            <details className="reviewDetails" key={index}>
+              <summary>{check.metric === "revenue_yoy" ? "Revenue year over year" : "Operating margin"} · {check.status}</summary>
+              {check.claim && <p>{check.claim}</p>}
+              <p>{check.reason}</p>
+              {check.formula && <p>{check.formula} · Reported {check.declared_percentage}% · Calculated {check.rounded_percentage}%</p>}
+              {check.inputs && <ul>{check.inputs.map(input => (
+                <li key={`${input.line}-${input.column}`}>
+                  {input.label} · {input.period_end} · {input.raw_value} ({input.value} {check.currency})
+                  · Row {input.line}, column {input.column}
+                </li>
+              ))}</ul>}
+              {check.accession && <p>SEC filing {check.accession}</p>}
+              {check.record_id && snapshot?.data_snapshot?.snapshot_id && (
+                <a href={`${apiBaseUrl}/api/snapshots/${encodeURIComponent(snapshot.data_snapshot.snapshot_id)}/sources/${encodeURIComponent(check.record_id)}`} download>
+                  Download saved SEC source
+                </a>
+              )}
+            </details>
+          ))}
           <div className="reviewTableWrap"><table className="reviewTable"><caption>Evidence available for this report version</caption>
             <thead><tr><th>Evidence</th><th>Source</th><th>Excerpt</th></tr></thead>
             <tbody>{(snapshot?.evidence_ledger ?? []).map((item, i) => <tr key={`${item.evidence_id}-${i}`}

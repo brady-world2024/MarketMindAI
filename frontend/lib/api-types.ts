@@ -71,6 +71,22 @@ export type ReportSection = {
   content?: string | null;
 };
 
+export type FinancialClaimCheck = {
+  evidence_id?: string;
+  metric: "revenue_yoy" | "operating_margin";
+  status: "supported" | "contradicted" | "insufficient";
+  reason: string;
+  claim?: string;
+  declared_percentage?: string;
+  rounded_percentage?: string;
+  formula?: string;
+  currency?: string;
+  display_scale?: number;
+  record_id?: string;
+  accession?: string;
+  inputs?: { label: string; line: number; column: number; period_end: string; raw_value: string; value: string }[];
+};
+
 export type RunSnapshot = {
   research_cutoff?: { requested_date?: string; effective_session_date?: string; cutoff_at?: string;
     cutoff_at_local?: string; market_timezone?: string; calendar_id?: string; calendar_version?: string } | null;
@@ -130,7 +146,7 @@ export type RunSnapshot = {
     counterargument?: string;
     counterargument_response?: string;
   } | null;
-  report_verification?: { status?: string; blocks_actionable_recommendation?: boolean; issues?: ReviewIssue[] } | null;
+  report_verification?: { status?: string; blocks_actionable_recommendation?: boolean; issues?: ReviewIssue[]; financial_claims?: FinancialClaimCheck[] } | null;
   report_quality?: { score?: number; grade?: string; summary?: string; issues?: ReviewIssue[] } | null;
   evidence_ledger?: EvidenceRow[];
   review?: HumanReview | null;
