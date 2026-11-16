@@ -482,6 +482,11 @@ function renderSourceAvailability(snapshot) {
   const mode = snapshot.data_mode || "unknown";
   let html = `<h3>Data availability / 数据完整性</h3><p>Data mode: ${escapeHtml(mode)}</p>`;
   const cutoff = snapshot.research_cutoff || {}, manifest = snapshot.data_snapshot || {};
+  const qualitativeChecks = snapshot.report_verification?.qualitative_claims || [];
+  if (qualitativeChecks.length) {
+    html += '<details><summary>Qualitative claim verification</summary><pre>'
+      + escapeHtml(JSON.stringify(qualitativeChecks, null, 2)) + '</pre></details>';
+  }
   const financialChecks = snapshot.report_verification?.financial_claims || [];
   if (financialChecks.length) {
     html += '<details><summary>Financial claim verification</summary><pre>'

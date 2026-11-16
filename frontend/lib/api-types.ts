@@ -71,6 +71,14 @@ export type ReportSection = {
   content?: string | null;
 };
 
+export type QualitativeClaimCheck = {
+  claim_number: number;
+  claim: string;
+  status: "supported" | "contradicted" | "insufficient";
+  reason: string;
+  citations: { record_id: string; quote: string; provider: string; published_at: string }[];
+};
+
 export type FinancialClaimCheck = {
   evidence_id?: string;
   metric: "revenue_yoy" | "operating_margin";
@@ -146,7 +154,7 @@ export type RunSnapshot = {
     counterargument?: string;
     counterargument_response?: string;
   } | null;
-  report_verification?: { status?: string; blocks_actionable_recommendation?: boolean; issues?: ReviewIssue[]; financial_claims?: FinancialClaimCheck[] } | null;
+  report_verification?: { status?: string; blocks_actionable_recommendation?: boolean; issues?: ReviewIssue[]; financial_claims?: FinancialClaimCheck[]; qualitative_claims?: QualitativeClaimCheck[] } | null;
   report_quality?: { score?: number; grade?: string; summary?: string; issues?: ReviewIssue[] } | null;
   evidence_ledger?: EvidenceRow[];
   review?: HumanReview | null;

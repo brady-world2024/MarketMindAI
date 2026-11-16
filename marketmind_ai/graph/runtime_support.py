@@ -36,6 +36,7 @@ from ..agents.schemas import (
 from ..agents.utils import AnalysisContext, build_toolsets, create_msg_delete, score_bundle
 from ..graph.decision import FinalDecision
 from ..llm_clients import ModelBundle, build_model_bundle
+from ..reporting.qualitative_verification import verify_active_claims
 from ..reporting.financial_claims import active_financial_metrics, verify_financial_claims
 from ..reporting import ReportQualityScorer, build_evidence_ledger
 from ..verification import DecisionVerifier
@@ -490,13 +491,25 @@ class GraphResearchEngine:
         metrics = active_financial_metrics()
         financial_checks = (verify_financial_claims(decision.model_dump(mode="json"), metrics)
                             if metrics is not None else [])
-        failures = [check for check in financial_checks if check["status"] != "supported"]
+        qualitative_checks = []
+        if final_decision.decision_status == DecisionStatus.ACTIONABLE and all(
+            check["status"] == "supported" for check in financial_checks
+        ):
+            qualitative_checks = verify_active_claims(
+                decision.model_dump(mode="json"), getattr(getattr(self, "models", None), "quick", None))
+        checks_by_kind = {
+            "financial": financial_checks,
+            "qualitative": qualitative_checks,
+        }
+        failures = [kind for kind, checks in checks_by_kind.items()
+                    if any(check["status"] != "supported" for check in checks)]
         if failures:
+            failure = failures[0]
             final_decision = self._downgrade_for_quality(final_decision, {
-                "summary": "A financial claim could not be verified from the saved SEC filing."})
-            final_decision.executive_summary = "No recommendation. See financial claim verification."
-            final_decision.investment_thesis = "The proposed thesis did not clear financial claim verification."
-            final_decision.confidence_rationale = "Financial evidence is insufficient or conflicts with the saved filing."
+                "summary": f"A {failure} claim could not be verified from the saved evidence."})
+            final_decision.executive_summary = f"No recommendation. See {failure} claim verification."
+            final_decision.investment_thesis = f"The proposed thesis did not clear {failure} claim verification."
+            final_decision.confidence_rationale = "Evidence is insufficient or conflicts with the proposed claim."
         reporting_payload = self._reporting_payload(state, final_decision)
         if (
             final_decision.decision_status == DecisionStatus.ACTIONABLE
@@ -504,16 +517,18 @@ class GraphResearchEngine:
         ):
             final_decision = self._downgrade_for_quality(final_decision, reporting_payload["report_quality"])
             reporting_payload = self._reporting_payload(state, final_decision)
-        if financial_checks:
-            verification = reporting_payload["verification"]
-            verification["financial_claims"] = financial_checks
-            if failures:
-                verification["status"] = "blocked"
-                verification["blocks_actionable_recommendation"] = True
-                verification["issues"] = [*(verification.get("issues") or []), {
-                    "code": "financial_claim_verification_failed",
-                    "message": "A financial claim could not be verified from the saved SEC filing.",
-                }]
+        verification = reporting_payload["verification"]
+        for kind, checks in checks_by_kind.items():
+            if checks:
+                verification[f"{kind}_claims"] = checks
+        if failures:
+            verification["status"] = "blocked"
+            verification["blocks_actionable_recommendation"] = True
+            verification["issues"] = [*(verification.get("issues") or []), *[
+                {"code": f"{kind}_claim_verification_failed",
+                 "message": f"A {kind} claim could not be verified from the saved evidence."}
+                for kind in failures
+            ]]
         return final_decision, reporting_payload
 
     def _reporting_payload(self, state, final_decision: PortfolioDecision) -> dict:
