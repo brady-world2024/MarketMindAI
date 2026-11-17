@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { RunSnapshot } from "../lib/api-types";
 import { elapsedTime, RESEARCH_PHASES, researchPhase } from "../lib/research-view";
+import { DataPreflightCard } from "./data-preflight-card";
 import { WorkbenchIcon } from "./workbench-icon";
 
 export type StreamState = "idle" | "connecting" | "live" | "reconnecting" | "disconnected" | "finished";
@@ -30,6 +31,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
       className={`${index < phase.index || reviewComplete && index === 4 ? "done" : ""} ${index === phase.index && !reviewComplete ? "current" : ""} ${phase.failed && index === phase.index ? "failed" : ""}`}
       aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>}
     <p className="summaryLine" role="status">{snapshot?.latest_update ?? (running ? "Checking input and starting the workflow…" : "Choose a company and start a research run.")}</p>
+    <DataPreflightCard snapshot={snapshot} running={running} />
     {snapshot?.provider === "offline" && <p className="offlineNotice">Offline demo · Uses sample data and local rules. No paid model calls.</p>}
     {snapshot?.model_usage && <div className="summaryLine" aria-label="Model usage">
       <p>Model calls {snapshot.model_usage.calls_started}{snapshot.model_usage.model_call_limit !== null

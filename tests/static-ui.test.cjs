@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const preflight = require('./preflight-fixtures.cjs');
 
 function app() {
   const elements = new Map();
@@ -28,6 +29,28 @@ function app() {
   context.bindEvents();
   return { context, $, requests, sources, alerts };
 }
+
+test('static progress shows the current preflight result and clears saved data on run changes', () => {
+  const { context, $ } = app();
+  context.renderRunProgress({ status: 'running', research_cutoff: preflight.cutoff });
+  assert.match($('preflightStatus').textContent, /Checking required data/);
+  context.renderRunProgress(preflight.passed);
+  assert.match($('preflightStatus').textContent, /Data preflight passed/);
+  const passed = $('preflightDetails').innerHTML;
+  for (const value of ['2026-07-04', '2026-07-02', '16:00', 'America/New_York', '63 / 50 valid daily bars',
+    'Income statement', 'Balance sheet', 'Cash flow statement', '2026-03-31', 'SEC', 'Optional',
+    'No news with a verified publication time']) assert.ok(passed.includes(value), value);
+  context.renderRunProgress(preflight.blocked);
+  assert.match($('preflightStatus').textContent, /Required data incomplete/);
+  assert.match($('preflightDetails').innerHTML, /Cash flow statement is missing/);
+  assert.match($('preflightDetails').innerHTML, /No recommendation/);
+  assert.match($('preflightDetails').innerHTML, /href="#sourceAvailability"/);
+  assert.doesNotMatch($('preflightDetails').innerHTML, /<unsafe reason>/);
+  context.renderRunProgress({ status: 'completed', data_mode: 'demo' });
+  assert.match($('preflightStatus').textContent, /Preflight result unavailable/);
+  assert.match($('preflightDetails').innerHTML, /Demo data/);
+  assert.doesNotMatch($('preflightDetails').innerHTML, /63 \/ 50|2026-03-31/);
+});
 
 test('static report shows frozen cutoff, source admission and unverified legacy provenance', () => {
   const { context, $ } = app();
