@@ -11,6 +11,7 @@ import json
 
 from ..agents.utils.memory_retrieval import MarketMindMemoryRetriever
 from ..config import AppPaths, DEFAULT_ANALYSTS
+from ..run_control import RunStopped, check_running, seal_run
 from ..dataflows.config import DataflowAudit, dataflow_context, get_audit
 from ..dataflows.preflight import run_preflight
 from ..dataflows.research_cutoff import ResearchCutoff, resolve_research_cutoff
@@ -88,6 +89,7 @@ class MarketMindGraph:
             while True:
                 with dataflow_context(runtime_config, audit=audit):
                     try:
+                        check_running()
                         snapshot = next(iterator)
                     except StopIteration:
                         return
@@ -162,6 +164,7 @@ class MarketMindGraph:
                                                                         for code in availability.reason_codes]}
             for agent in snapshot.agents:
                 agent.status = 'skipped'
+            seal_run()
             draft = self.reviews.save_draft(snapshot.to_dict(), request, {})
             snapshot.review = draft['review']
             self.archive.save(snapshot)
@@ -227,6 +230,8 @@ class MarketMindGraph:
                     self.projector.apply_state(snapshot, state)
                     self._attach_sources(snapshot, availability)
                     yield snapshot.clone()
+        except RunStopped:
+            raise
         except Exception as exc:
             snapshot.status = "error"
             snapshot.error = str(exc)
@@ -242,6 +247,7 @@ class MarketMindGraph:
         snapshot.current_agent = None
         snapshot.latest_update = "Research complete."
         self._attach_sources(snapshot, availability)
+        seal_run()
         draft = self.reviews.save_draft(snapshot.to_dict(), request, self.projector.state_log_payload(current_state))
         snapshot.review = draft["review"]
         self.archive.save(snapshot)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..run_control import check_running
+
 from datetime import datetime, timedelta, timezone
 
 try:
@@ -102,6 +104,7 @@ def get_news_documents_yfinance(
         return []
     try:
         stock = yf.Ticker(ticker)
+        check_running()
         news = stock.get_news(count=30)
         if not news:
             return []
@@ -143,6 +146,7 @@ def get_global_news_documents_yfinance(
         start_dt = curr_dt - timedelta(days=look_back_days)
 
         for query in search_queries:
+            check_running()
             search = yf.Search(
                 query=query,
                 news_count=limit,

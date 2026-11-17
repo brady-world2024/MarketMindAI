@@ -425,7 +425,15 @@ function renderRunProgress(snapshot) {
   else if (active) phase = `In progress · ${active.label}`;
   else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
   if (snapshot.data_availability?.can_recommend === false) phase = "Data incomplete · No AI analysis · No recommendation";
+  const controlPhase = { stopping: "Stopping research", cancelled: "Research cancelled", timed_out: "Research timed out" };
+  if (controlPhase[snapshot.job_status]) phase = controlPhase[snapshot.job_status];
   $("runPhase").textContent = phase;
+  const cancelControls = $("cancelRunControls");
+  const cancelButton = $("cancelRunBtn");
+  if (cancelControls && cancelButton) {
+    cancelControls.hidden = !["queued", "running"].includes(snapshot.status);
+    cancelButton.disabled = snapshot.job_status === "stopping";
+  }
   const completed = agents.filter((agent) => agent.status === "completed").length;
   $("phaseDetail").textContent = agents.length ? `${completed} of ${agents.length} agent stages complete${snapshot.report_verification ? ` · Validation: ${snapshot.report_verification.status || "recorded"}` : ""}` : "Stages appear as the run reports progress.";
   renderElapsed(snapshot);
@@ -449,7 +457,7 @@ function renderRunProgress(snapshot) {
     return `<li data-phase-status="${status}"><span>${label}</span><small>${status}</small></li>`;
   }).join("") + `<li data-phase-status="${snapshot.report_verification?.status === "failed" ? "Failed" : snapshot.report_verification ? "Complete" : "Waiting"}"><span>Validation</span><small>${escapeHtml(snapshot.report_verification?.status || "Waiting")}</small></li>` + `<li data-phase-status="${reviewPhase}"><span>Human review</span><small>${reviewStatus}</small></li>`;
   if (["completed", "error"].includes(snapshot.status)) {
-    $("streamStatus").textContent = snapshot.job_status === "interrupted" ? "Run interrupted" : snapshot.status === "error" ? "Run failed" : "Run complete";
+    $("streamStatus").textContent = controlPhase[snapshot.job_status] || (snapshot.job_status === "interrupted" ? "Run interrupted" : snapshot.status === "error" ? "Run failed" : "Run complete");
   }
 }
 
@@ -696,6 +704,22 @@ async function startRun() {
   }
 }
 
+async function cancelRun() {
+  const id = state.runId;
+  if (!id) return;
+  const generation = state.loadGeneration;
+  $("cancelRunBtn").disabled = true;
+  try {
+    await getJson(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+    if (state.runId === id && state.loadGeneration === generation) await refreshRun();
+  } catch (error) {
+    if (state.runId === id && state.loadGeneration === generation) {
+      $("streamStatus").textContent = error.message;
+      $("cancelRunBtn").disabled = false;
+    }
+  }
+}
+
 async function refreshRun() {
   if (!state.runId) return;
   const id = state.runId;
@@ -703,6 +727,8 @@ async function refreshRun() {
   try {
     const snapshot = await getJson(`/api/runs/${id}`);
     if (id !== state.runId || generation !== state.loadGeneration) return;
+    if (state.snapshot?.run_id === id && ["completed", "error"].includes(state.snapshot.status)
+        && ["queued", "running"].includes(snapshot.status)) return;
     renderSnapshot(snapshot);
   } catch (_error) {}
 }
@@ -754,6 +780,7 @@ function bindEvents() {
   $("startRunBtn").addEventListener("click", () => {
     void startRun();
   });
+  $("cancelRunBtn").addEventListener("click", () => { void cancelRun(); });
   $("refreshResultBtn").addEventListener("click", () => {
     void refreshRun();
   });

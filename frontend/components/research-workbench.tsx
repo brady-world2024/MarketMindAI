@@ -325,6 +325,7 @@ export function ResearchWorkbench() {
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [checkpointEnabled, setCheckpointEnabled] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [cancellingRun, setCancellingRun] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [streamState, setStreamState] = useState<StreamState>("idle");
@@ -562,6 +563,23 @@ export function ResearchWorkbench() {
       }
       setStreamState(source.readyState === EventSource.CLOSED ? "disconnected" : "reconnecting");
     };
+  }
+
+  async function cancelResearch(id: string) {
+    setCancellingRun(id);
+    try {
+      const response = await fetch(apiUrl(`/api/runs/${encodeURIComponent(id)}/cancel`), { method: "POST" });
+      const reply = await response.json();
+      if (activeRunRef.current !== id) return;
+      if (!response.ok) throw new Error(typeof reply.detail === "string" ? reply.detail : "Unable to cancel this run.");
+      setSnapshot(current => current?.run_id === id && ["queued", "running"].includes(current.status)
+        ? { ...current, job_status: reply.job_status, stop_reason: reply.stop_reason, latest_update: reply.latest_update }
+        : current);
+    } catch (cause) {
+      if (activeRunRef.current === id) setError(cause instanceof Error ? cause.message : "Unable to cancel this run.");
+    } finally {
+      setCancellingRun(current => current === id ? null : current);
+    }
   }
 
   function rememberRun(id: string) {
@@ -861,6 +879,7 @@ export function ResearchWorkbench() {
             <p className="summaryLine">{snapshot.current_agent && `Last recorded stage: ${snapshot.current_agent}`}</p>
           )}
           {(snapshot || isRunning) && <ResearchProgress snapshot={snapshot} running={isRunning} streamState={streamState}
+            onCancel={runId ? () => void cancelResearch(runId) : undefined} cancelling={cancellingRun !== null && cancellingRun === runId}
             onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
           {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport}
             apiBaseUrl={API_BASE_URL} onReplay={() => void startRun(reportSnapshot)} replayBusy={isRunning || reviewBusy} />}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..run_control import check_running
+
 from typing import Any, Callable, Dict, List
 from collections.abc import Mapping
 from hashlib import sha256
@@ -372,6 +374,7 @@ def _fetch_from_vendors(method, args, kwargs, aggregate, audit, *, selected_vend
     successful_provider = None
     value = None
     for provider in vendors:
+        check_running()
         started = utc_now()
         attempt_id = str(uuid4())
         previous_capture = audit.capture_context if audit else None
@@ -384,6 +387,7 @@ def _fetch_from_vendors(method, args, kwargs, aggregate, audit, *, selected_vend
             code = None if status == "success" else status
             message = None if status == "success" else "The provider returned no usable source data."
         except Exception as exc:
+            check_running()
             status, code, message = _failure_details(exc)
             response = None
         finally:

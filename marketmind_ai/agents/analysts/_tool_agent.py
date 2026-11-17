@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -48,7 +50,7 @@ def create_tool_analyst_node(
             current_date=state["trade_date"],
             instrument_context=instrument_context,
         )
-        result = (prompt | llm.bind_tools(tools)).invoke(state["messages"])
+        result = invoke_model(prompt | llm.bind_tools(tools), state["messages"])
         report = result.content if not result.tool_calls else ""
         return {"messages": [result], report_field: report, "sender": label}
 

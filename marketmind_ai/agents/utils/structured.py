@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from typing import Any, Callable, Optional
 
 
@@ -20,9 +22,9 @@ def invoke_structured_or_freetext(
     agent_label: str,
 ) -> str:
     if structured_llm is not None:
-        result = structured_llm.invoke(prompt)
+        result = invoke_model(structured_llm, prompt)
         return renderer(result)
     if fallback_llm is None:
         raise RuntimeError(f"{agent_label} has no available runtime")
-    response = fallback_llm.invoke(prompt)
+    response = invoke_model(fallback_llm, prompt)
     return str(getattr(response, "content", response))

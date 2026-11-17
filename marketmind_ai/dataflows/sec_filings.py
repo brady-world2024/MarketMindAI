@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..run_control import check_running
+
 import gzip
 import json
 import re
@@ -121,6 +123,7 @@ def _extract_filing_text(html: str) -> str:
 
 def _sec_get_json(url: str) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=_sec_headers())
+    check_running()
     with urllib.request.urlopen(request, timeout=20) as response:
         body = _read_response_bytes(response).decode("utf-8")
         content_type = response.headers.get('Content-Type', 'application/json')
@@ -130,6 +133,7 @@ def _sec_get_json(url: str) -> dict[str, Any]:
 
 def _sec_get_text(url: str) -> str:
     request = urllib.request.Request(url, headers=_sec_headers())
+    check_running()
     with urllib.request.urlopen(request, timeout=20) as response:
         body = _read_response_bytes(response).decode("utf-8", errors="ignore")
         content_type = response.headers.get('Content-Type', 'text/plain')

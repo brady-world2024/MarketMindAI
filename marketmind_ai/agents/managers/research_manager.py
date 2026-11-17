@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from ..schemas import ResearchPlan, render_research_plan
 from ..utils.common import build_instrument_context, get_language_instruction
 from ..utils.structured import bind_structured, invoke_structured_or_freetext
@@ -58,7 +60,7 @@ def create_research_manager(llm, offline_runtime):
                     "investment_plan": rendered,
                     "sender": "Research Manager",
                 }
-            plan = structured.invoke(prompt)
+            plan = invoke_model(structured, prompt)
         rendered = render_research_plan(plan)
         if offline_runtime.models.offline and state.get("human_feedback"):
             rendered += "\n\nHuman revision feedback (retained, not synthesized in offline mode):\n" + state["human_feedback"]

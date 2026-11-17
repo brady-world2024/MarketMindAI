@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ...run_control import invoke_model
+
 from ..utils.common import get_language_instruction
 
 
@@ -22,7 +24,7 @@ def create_bear_researcher(llm, offline_runtime):
                 f"Debate so far:\n{state['investment_debate_state'].get('history', '')}\n"
                 f"{get_language_instruction(state['output_language'])}"
             )
-            content = str(llm.invoke(prompt).content)
+            content = str(invoke_model(llm, prompt).content)
         argument = f"Bear Analyst: {content}"
         debate = state["investment_debate_state"]
         return {

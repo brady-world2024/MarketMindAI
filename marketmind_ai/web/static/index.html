@@ -199,6 +199,10 @@
           <p id="phaseDetail">Start a research run or open a saved report.</p>
           <ol class="phase-steps" id="phaseSteps" aria-label="Research phases"></ol>
           <p id="streamStatus" role="status" aria-live="polite">No active stream</p>
+          <div id="cancelRunControls" hidden>
+            <button id="cancelRunBtn" type="button">Cancel research</button>
+            <small>Requests already sent may finish and incur charges.</small>
+          </div>
           <details class="activity-details">
             <summary>Agents &amp; activity</summary>
             <div class="agent-board" id="agentBoard"></div>

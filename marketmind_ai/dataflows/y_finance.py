@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..run_control import check_running
+
 import json
 import urllib.parse
 import urllib.request
@@ -28,6 +30,7 @@ def _http_json(url: str, timeout: int = 15) -> dict:
             "Accept": "application/json",
         },
     )
+    check_running()
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read().decode("utf-8")
     capture_source_response(url, body, 'application/json')
@@ -102,6 +105,7 @@ def get_fundamentals(symbol: str) -> FundamentalSnapshot:
     if yf is not None:
         try:
             ticker = yf.Ticker(symbol.upper())
+            check_running()
             info = getattr(ticker, "info", {}) or {}
             if info:
                 return FundamentalSnapshot(
@@ -200,6 +204,7 @@ def _get_statement(symbol: str, title: str, attribute: str) -> str:
         raise UnconfiguredSourceError("The yfinance client is not available.")
     # Preserve structural failure information for the routing boundary.
     ticker = yf.Ticker(symbol.upper())
+    check_running()
     return _format_frame(title, getattr(ticker, attribute))
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import logging
 import os
 import threading
@@ -13,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from ..run_control import RunControl, use_run_control
 from ..graph import MarketMindGraph
 from ..symbols import SymbolResolution
 from .catalog import build_provider_catalog
@@ -41,6 +43,7 @@ class RunSession:
     def __init__(self, run_id: str):
         self.run_id = run_id
         self.started_at = iso_now()
+        self.control = RunControl()
         self._condition = threading.Condition()
         self._history: list[dict[str, Any]] = []
         self._latest_snapshot: dict[str, Any] | None = None
@@ -64,19 +67,39 @@ class RunSession:
         with self._condition:
             return self._latest_snapshot
 
+    def view(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+        if snapshot is None or snapshot.get("status") not in {"queued", "running"}:
+            return snapshot
+        reason = self.control.reason
+        if not reason:
+            return snapshot
+        return {**snapshot, "job_status": "stopping", "stop_reason": reason,
+                "latest_update": ("Time limit reached. Waiting for active calls to return."
+                                  if reason == "timed_out" else "Cancellation requested. Waiting for active calls to return.")}
+
     def stream_events(self) -> Iterator[dict[str, Any]]:
         index = 0
+        reported_stop = False
         while True:
             with self._condition:
-                while index >= len(self._history) and not self._done:
+                if index >= len(self._history) and not self._done:
                     self._condition.wait(timeout=0.5)
                 batch = self._history[index:]
-                done = self._done
+                latest, done = self._latest_snapshot, self._done
             for event in batch:
+                if event["type"] == "snapshot":
+                    payload = self.view(event["payload"])
+                    reported_stop |= payload.get("job_status") == "stopping"
+                    event = {**event, "payload": payload}
                 yield event
                 index += 1
-            if done and index >= len(self._history):
-                break
+            if done:
+                return
+            if not reported_stop:
+                status = self.view(latest)
+                if status and status.get("job_status") == "stopping":
+                    reported_stop = True
+                    yield {"type": "snapshot", "payload": status}
 
 
 class RunRegistry:
@@ -130,7 +153,9 @@ def _load_persisted_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str
 
 
 def _recover_interrupted(workflow: MarketMindGraph, job: dict) -> dict:
-    if job.get("job_status") != "interrupted" or job.get("data_snapshot"):
+    if job.get("job_status") not in {"interrupted", "cancelled", "timed_out"} or job.get("data_snapshot"):
+        return job
+    if not all(job.get(key) for key in ("run_id", "ticker", "data_mode", "analysis_date", "started_at")):
         return job
     store = SourceStore(workflow.paths.root / "sources")
     saved = store.find_for_run(job["run_id"], symbol=job["ticker"], data_mode=job["data_mode"],
@@ -141,7 +166,8 @@ def _recover_interrupted(workflow: MarketMindGraph, job: dict) -> dict:
         "snapshot_id": saved.snapshot_id, "manifest_sha256": snapshot_fingerprint(saved),
         "policy_version": saved.policy_version, "processing_version": saved.processing_version,
         "format_version": saved.format_version, "origin_run_id": saved.origin_run_id,
-    }, "latest_update": "Use the saved data to run this research again."}
+    }, "latest_update": ("Use the saved data to run this research again."
+                          if job["job_status"] == "interrupted" else job["latest_update"])}
 
 
 def _archived_or_interrupted(workflow: MarketMindGraph, run_id: str, job: dict | None) -> dict | None:
@@ -162,7 +188,7 @@ def _resolve_snapshot(workflow: MarketMindGraph, run_id: str, runs: RunRegistry,
     session = runs.get(run_id)
     job = jobs.get(run_id)
     if session is not None:
-        return session.latest_snapshot or job
+        return session.view(session.latest_snapshot or job)
     return _archived_or_interrupted(workflow, run_id, job)
 
 
@@ -179,30 +205,46 @@ def _safe_run_error(payload: dict) -> None:
         payload["error"] = "Analysis failed. Check the provider connection and try again."
 
 
+def _hide_final_decision(payload: dict) -> None:
+    payload.update(final_signal=None, final_decision=None, final_structured_decision=None, review=None,
+                   report_verification=None, report_quality=None, evidence_ledger=[])
+    payload["reports"] = [report for report in payload.get("reports", []) if report["key"] != "final_trade_decision"]
+
+
 def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request: AnalysisRequest,
                          resolution: SymbolResolution, jobs: JobStore, runs: RunRegistry) -> None:
     archived = False
+    final_snapshot = None
     last_progress = None
     try:
         core_request = to_core_request(request)
-        for snapshot in workflow.stream(core_request, run_id=session.run_id):
-            payload = snapshot.to_dict()
-            if payload["status"] == "error":
-                _safe_run_error(payload)
-            if request.snapshot_id and not payload.get("data_snapshot"):
-                payload["data_snapshot"] = {"snapshot_id": request.snapshot_id}
-            progress = (payload["status"], payload.get("current_agent"), payload.get("data_snapshot"))
-            if progress != last_progress and payload["status"] in {"queued", "running"}:
-                jobs.save({**payload, "started_at": session.started_at}, request.api_key)
-                last_progress = progress
-            session.publish("snapshot", payload)
-        final_snapshot = session.latest_snapshot
-        if final_snapshot and final_snapshot["status"] in {"completed", "error"}:
+        with use_run_control(session.control), closing(workflow.stream(core_request, run_id=session.run_id)) as iterator:
+            session.control.check()
+            for snapshot in iterator:
+                payload = snapshot.to_dict()
+                if payload["status"] == "error":
+                    _safe_run_error(payload)
+                if payload["status"] != "completed":
+                    _hide_final_decision(payload)
+                if request.snapshot_id and not payload.get("data_snapshot"):
+                    payload["data_snapshot"] = {"snapshot_id": request.snapshot_id}
+                if payload["status"] in {"completed", "error"}:
+                    final_snapshot = payload
+                    continue
+                progress = (payload["status"], payload.get("current_agent"), payload.get("data_snapshot"))
+                if progress != last_progress and payload["status"] in {"queued", "running"}:
+                    jobs.save({**payload, "started_at": session.started_at}, request.api_key)
+                    last_progress = progress
+                session.publish("snapshot", payload)
+                session.control.check()
+        if final_snapshot:
+            session.control.seal()
             _persist_snapshot(workflow, session.run_id, final_snapshot)
             archived = True
+            session.publish("snapshot", final_snapshot)
             session.publish("complete", final_snapshot)
     except Exception:
-        latest = dict(session.latest_snapshot or {
+        latest = dict(final_snapshot or session.latest_snapshot or {
             "run_id": session.run_id,
             "status": "error",
             "original_input": request.ticker,
@@ -228,6 +270,13 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
         _safe_run_error(latest)
         latest["finished_at"] = iso_now()
         latest["latest_update"] = "Analysis failed."
+        reason = session.control.finish_reason()
+        if reason:
+            _hide_final_decision(latest)
+            latest.update(job_status=reason, stop_reason=reason,
+                          error="Research cancelled." if reason == "cancelled" else "Research timed out.")
+            latest["latest_update"] = latest["error"]
+            latest = _recover_interrupted(workflow, latest)
         _persist_snapshot(workflow, session.run_id, latest)
         session.publish("snapshot", latest)
         archived = True
@@ -275,6 +324,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             if request.snapshot_id:
                 queued["data_snapshot"] = {"snapshot_id": request.snapshot_id}
             store.save(queued, request.api_key)
+            session.publish("snapshot", queued)
             worker = AnalysisThread(target=_run_analysis_thread,
                                     args=(session, get_workflow(), request, resolution, store, runs), daemon=True)
             worker.start()
@@ -440,6 +490,19 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             if resolved and resolved.get("job_status") == "interrupted":
                 interrupted.append(resolved)
         return JSONResponse(interrupted)
+
+    @app.post("/runs/{run_id}/cancel", status_code=202)
+    @app.post("/api/runs/{run_id}/cancel", status_code=202)
+    def cancel_run(run_id: str) -> JSONResponse:
+        session = runs.get(run_id)
+        if session is None:
+            if _resolve_snapshot(get_workflow(), run_id, runs, get_jobs()) is None:
+                raise HTTPException(status_code=404, detail="Run not found")
+            raise HTTPException(status_code=409, detail="This research run is no longer active.")
+        if not session.control.cancel():
+            raise HTTPException(status_code=409, detail="This research run has finished or is already timing out.")
+        snapshot = session.view(session.latest_snapshot or get_jobs().get(run_id))
+        return JSONResponse(snapshot or {"run_id": run_id, "job_status": "stopping"}, status_code=202)
 
     @app.get("/runs/{run_id}")
     @app.get("/api/runs/{run_id}")
