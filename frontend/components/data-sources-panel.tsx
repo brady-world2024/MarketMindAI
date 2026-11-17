@@ -38,7 +38,7 @@ export function DataSourcesPanel({ snapshot, apiBaseUrl, onReplay, replayBusy }:
 }) {
   const data = snapshot.data_availability;
   const mode = snapshot.data_mode ?? "unknown";
-  return <div className="sourcePanel">
+  return <div className="sourcePanel" id="research-data-sources" tabIndex={-1}>
     <SnapshotProvenance snapshot={snapshot} apiBaseUrl={apiBaseUrl} />
     {snapshot.data_snapshot?.snapshot_id && onReplay && <div className="reportExtra">
       <button type="button" className="secondaryButton" disabled={replayBusy} onClick={onReplay}>Replay saved data</button>

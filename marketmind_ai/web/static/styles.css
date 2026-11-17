@@ -488,6 +488,22 @@ summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
 #runPhase { font-size: 1rem; line-height: 1.6; }
 #elapsedTime { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; white-space: nowrap; }
 #phaseDetail, #streamStatus { color: var(--muted); font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
+.preflight-card { margin-block: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 2px solid var(--muted); border-radius: 6px; overflow-wrap: anywhere; }
+.preflight-card[data-state="passed"] { border-left-color: var(--accent); }
+.preflight-card[data-state="blocked"] { border-left-color: var(--warning); }
+.preflight-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; }
+.preflight-heading h3 { margin: 0; font-size: .9rem; }
+.preflight-heading strong { font-size: .8rem; color: var(--muted); }
+.preflight-card[data-state="passed"] strong { color: var(--accent); }
+.preflight-card[data-state="blocked"] strong { color: var(--warning); }
+.preflight-cutoff { margin: 8px 0 0; color: var(--muted); font: .75rem/1.6 monospace; }
+.preflight-rows { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,10rem),1fr)); gap: 8px 14px; margin: 10px 0 0; }
+.preflight-row { min-width: 0; padding-top: 7px; border-top: 1px solid var(--line); font-size: .8rem; }
+.preflight-row dt { font-weight: 600; }
+.preflight-row small { margin-left: 6px; color: var(--muted); font-weight: 400; }
+.preflight-row dd { display: grid; margin: 2px 0 0; color: var(--muted); }
+.preflight-row-status { color: var(--ink); }
+.preflight-next { margin: 10px 0 0; color: var(--muted); font-size: .8rem; }
 .phase-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0; list-style: none; margin-block: 20px; }
 .phase-steps li { padding: 10px 12px; border-top: 3px solid var(--line); background: rgba(255,255,255,.4); font-size: .8rem; }
 .phase-steps li small { display: block; margin-top: 5px; font-size: .72rem; }

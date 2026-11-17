@@ -192,6 +192,22 @@ textarea { resize: vertical; line-height: 1.65; }
 .progressPanel { padding: 20px 23px; }
 .progressPanel .sectionHeader { margin-bottom: 0; }
 .progressPanel h2 { font-size: 18px; }
+.preflightCard { margin-top: 16px; padding: 12px 14px; background: var(--surface-input); border: 1px solid var(--line-soft); border-left: 2px solid var(--subtle); border-radius: 6px; overflow-wrap: anywhere; }
+.preflightCard[data-state="passed"] { border-left-color: var(--sage); }
+.preflightCard[data-state="blocked"] { border-left-color: var(--danger); }
+.preflightHeader { display: flex; align-items: baseline; justify-content: space-between; gap: 4px 14px; flex-wrap: wrap; }
+.preflightHeader h3 { margin: 0; font-size: 14px; }
+.preflightHeader strong { color: var(--muted); font-size: 12px; font-weight: 600; }
+.preflightCard[data-state="passed"] .preflightHeader strong { color: var(--sage); }
+.preflightCard[data-state="blocked"] .preflightHeader strong { color: var(--danger); }
+.preflightCutoff { margin: 8px 0 0; color: var(--muted); font: 11px/1.6 var(--font-data); }
+.preflightRows { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap: 8px 14px; margin: 10px 0 0; }
+.preflightRow { min-width: 0; padding-top: 7px; border-top: 1px solid var(--line-soft); font-size: 12px; }
+.preflightRow dt { font-weight: 600; }
+.preflightRow small { margin-left: 6px; color: var(--muted); font-size: 11px; font-weight: 400; }
+.preflightRow dd { display: grid; margin: 2px 0 0; color: var(--muted); }
+.preflightRowStatus { color: var(--ink); }
+.preflightNext { margin: 10px 0 0; color: var(--muted); font-size: 12px; }
 .elapsedTime { display: flex; align-items: center; gap: 6px; font: 10px var(--font-data); color: var(--muted); white-space: nowrap; }
 .phaseSteps { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); list-style: none; padding: 0; margin: 22px 0 17px; gap: 8px; }
 .phaseSteps li { display: flex; flex-direction: column; gap: 8px; border-top: 2px solid #31445c; padding-top: 11px; color: var(--subtle); font-size: 9px; line-height: 1.45; }

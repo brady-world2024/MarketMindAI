@@ -123,9 +123,10 @@ export type RunSnapshot = {
   data_availability?: {
     can_recommend: boolean; ai_analysis_performed: boolean; missing: string[]; reason_codes?: string[];
     requirements: Record<string, { required: boolean; available: boolean; provider?: string | null;
-      reason_codes?: string[]; valid_count?: number; minimum_count?: number }>;
+      reason_codes?: string[]; valid_count?: number; minimum_count?: number; period_end?: string | null }>;
   } | null;
-  instrument_eligibility?: {status: string; exchange?: string | null; security_type?: string | null; reason_codes?: string[]} | null;
+  instrument_eligibility?: {status: string; exchange?: string | null; security_type?: string | null;
+    provider?: string | null; reason_codes?: string[]} | null;
   source_attempts?: {method: string; provider: string; status: string; started_at?: string; finished_at?: string; message?: string | null}[];
   source_materials?: {method: string; provider: string; retrieved_at?: string; content: unknown; source_url?: string | null}[];
   run_id: string;

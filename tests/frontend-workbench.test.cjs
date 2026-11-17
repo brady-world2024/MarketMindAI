@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const ts = require('../frontend/node_modules/typescript');
+const preflight = require('./preflight-fixtures.cjs');
 
 function loadModule(relative) {
   const filename = path.join(__dirname, '../frontend', relative);
@@ -28,6 +29,37 @@ const provider = (value = 'openai') => ({ value, label: value, base_url: `https:
   requires_api_key: true, supports_custom_models: true,
   quick_models: [{ value: 'quick-one', label: 'Quick one' }, { value: 'quick-two', label: 'Quick two' }],
   deep_models: [{ value: 'deep-one', label: 'Deep one' }] });
+
+test('the progress card shows the saved cutoff and data coverage before AI starts', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchProgress } = loadModule('components/research-progress.tsx');
+  const render = (snapshot, running, streamState = 'live') => renderToStaticMarkup(React.createElement(
+    ResearchProgress, { snapshot, running, streamState, onReconnect() {} },
+  ));
+  assert.match(render(null, true), /Checking required data/);
+  const passed = render(preflight.passed, true);
+  for (const value of ['Data preflight passed', '2026-07-04', '2026-07-02', '16:00', 'America/New_York',
+    '63 / 50 valid daily bars', 'Income statement', 'Balance sheet', 'Cash flow statement',
+    '2026-03-31', 'SEC', 'Optional', 'No news with a verified publication time']) assert.ok(passed.includes(value), value);
+  assert.doesNotMatch(passed, /No recommendation/);
+  const blocked = render(preflight.blocked, false);
+  assert.match(blocked, /Required data incomplete/);
+  assert.match(blocked, /No recommendation/);
+  assert.match(blocked, /Cash flow statement is missing/);
+  assert.match(blocked, /href="#research-data-sources"/);
+  assert.doesNotMatch(blocked, /<unsafe reason>/);
+  const interrupted = render({ status: 'error', job_status: 'interrupted', research_cutoff: preflight.cutoff }, false);
+  assert.match(interrupted, /Preflight result unavailable/);
+  assert.doesNotMatch(interrupted, /Checking required data|Required data incomplete/);
+  assert.match(render({ ...preflight.passed, data_mode: 'demo' }, true, 'reconnecting'), /Demo data/);
+  const unsupported = render({ ...preflight.blocked, data_availability: {
+    can_recommend: false, ai_analysis_performed: false, missing: ['instrument'],
+    requirements: { instrument: { required: true, available: false, reason_codes: ['instrument_unverified'] } },
+  } }, false);
+  assert.match(unsupported, /Not checked/);
+  assert.doesNotMatch(unsupported, /63 \/ 50/);
+});
 
 test('snapshot provenance distinguishes admitted, excluded and unverified sources with safe downloads', () => {
   const React = require('../frontend/node_modules/react');

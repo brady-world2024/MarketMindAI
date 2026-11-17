@@ -201,6 +201,10 @@
           </div>
           <div class="run-status-line"><strong id="runPhase" role="status">Ready when you are</strong><span id="elapsedTime">Elapsed —</span></div>
           <p id="phaseDetail">Start a research run or open a saved report.</p>
+          <section class="preflight-card" id="dataPreflight" aria-labelledby="preflightTitle" hidden>
+            <div class="preflight-heading"><h3 id="preflightTitle">Data preflight</h3><strong id="preflightStatus" role="status"></strong></div>
+            <div id="preflightDetails"></div>
+          </section>
           <p id="modelUsage" hidden></p>
           <ol class="phase-steps" id="phaseSteps" aria-label="Research phases"></ol>
           <p id="streamStatus" role="status" aria-live="polite">No active stream</p>
@@ -230,7 +234,7 @@
             <p id="finalSummary">No completed run yet.</p>
             <div id="decisionDetails"></div>
           </div>
-          <section id="sourceAvailability" aria-label="Data availability"></section>
+          <section id="sourceAvailability" aria-label="Data availability" tabindex="-1"></section>
           <details class="stage-reports"><summary>Stage reports</summary><p class="muted">Read each analyst’s report and the reasoning behind the decision.</p><div class="reports" id="reports"></div></details>
           <section class="human-review" aria-labelledby="reviewTitle">
             <div class="panel-heading"><h3 id="reviewTitle">Human review</h3><span id="reviewBadge" class="pill">No report selected</span></div>
