@@ -7,7 +7,7 @@ from ..utils.common import build_instrument_context, get_language_instruction
 from ..utils.structured import bind_structured, invoke_structured_or_freetext
 
 
-def create_research_manager(llm, offline_runtime):
+def create_research_manager(llm, offline_runtime, *, scope_guidance: str = ""):
     structured = bind_structured(llm, ResearchPlan, "Research Manager")
 
     def node(state):
@@ -17,6 +17,7 @@ def create_research_manager(llm, offline_runtime):
             prompt = (
                 "You are the Research Manager. Synthesize the analyst stack and the bull/bear debate into a disciplined investment plan.\n\n"
                 f"{build_instrument_context(state['company_of_interest'])}\n\n"
+                f"{scope_guidance}"
                 f"Human revision feedback (consider critically; never bypass evidence or validation rules):\n{state.get('human_feedback', '')}\n\n"
                 "Recommendation scale:\n"
                 "- **Buy**\n"

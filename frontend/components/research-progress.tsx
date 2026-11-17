@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { RunSnapshot } from "../lib/api-types";
 import { elapsedTime, RESEARCH_PHASES, researchPhase } from "../lib/research-view";
+import { researchScopeFacts } from "../lib/research-scope";
 import { DataPreflightCard } from "./data-preflight-card";
 import { WorkbenchIcon } from "./workbench-icon";
 
@@ -23,6 +24,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
   const connectionInterrupted = streamState === "reconnecting" || streamState === "disconnected";
   const noAnalysis = snapshot?.data_availability?.ai_analysis_performed === false
     && snapshot?.data_availability?.can_recommend === false;
+  const scope = snapshot && (running || !snapshot.final_decision) ? researchScopeFacts(snapshot) : [];
   return <section className="panel progressPanel" aria-labelledby="progress-title">
     <div className="sectionHeader compact"><div><p className="sectionKicker">Research progress</p>
       <h2 id="progress-title">{running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
@@ -31,6 +33,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
       className={`${index < phase.index || reviewComplete && index === 4 ? "done" : ""} ${index === phase.index && !reviewComplete ? "current" : ""} ${phase.failed && index === phase.index ? "failed" : ""}`}
       aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>}
     <p className="summaryLine" role="status">{snapshot?.latest_update ?? (running ? "Checking input and starting the workflow…" : "Choose a company and start a research run.")}</p>
+    {scope.length > 0 && <p className="summaryLine">Research scope · {scope.map(({ value }) => value).join(" · ")}</p>}
     <DataPreflightCard snapshot={snapshot} running={running} />
     {snapshot?.provider === "offline" && <p className="offlineNotice">Offline demo · Uses sample data and local rules. No paid model calls.</p>}
     {snapshot?.model_usage && <div className="summaryLine" aria-label="Model usage">

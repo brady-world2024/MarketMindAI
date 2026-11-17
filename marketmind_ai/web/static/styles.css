@@ -488,6 +488,8 @@ summary { cursor: pointer; font-weight: 600; line-height: 1.6; }
 #runPhase { font-size: 1rem; line-height: 1.6; }
 #elapsedTime { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; white-space: nowrap; }
 #phaseDetail, #streamStatus { color: var(--muted); font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
+#sourceAvailability { overflow-wrap: anywhere; }
+#sourceAvailability pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .preflight-card { margin-block: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 2px solid var(--muted); border-radius: 6px; overflow-wrap: anywhere; }
 .preflight-card[data-state="passed"] { border-left-color: var(--accent); }
 .preflight-card[data-state="blocked"] { border-left-color: var(--warning); }

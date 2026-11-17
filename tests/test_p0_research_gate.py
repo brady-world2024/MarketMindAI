@@ -35,7 +35,8 @@ def unavailable_workflow(tmp_path, monkeypatch):
 
 def test_missing_required_data_without_api_key_saves_nonactionable_materials(unavailable_workflow):
     workflow, engine = unavailable_workflow
-    request = AnalysisRequest(ticker='ABC', analysis_date='2026-06-12', api_key='', analysts=['news'])
+    request = AnalysisRequest(ticker='ABC', analysis_date='2026-06-12', api_key='', analysts=['news'],
+                              research_objective='earnings', research_horizon='1_to_3_months')
     snapshots = list(workflow.stream(request, run_id='partial-example'))
     final = snapshots[-1].to_dict()
     engine.assert_not_called()
@@ -45,6 +46,8 @@ def test_missing_required_data_without_api_key_saves_nonactionable_materials(una
     assert final['final_signal'] == 'No Recommendation'
     decision = final['final_structured_decision']
     assert decision['rating'] is None and decision['confidence'] is None and decision['price_target'] is None
+    assert final['research_objective'] == 'earnings' and final['research_horizon'] == '1_to_3_months'
+    assert decision['time_horizon'] is None
     assert final['data_availability']['ai_analysis_performed'] is False
     assert final['source_attempts'] and final['source_materials']
     assert workflow.reviews.load('partial-example')['source_materials'] == final['source_materials']
@@ -52,10 +55,30 @@ def test_missing_required_data_without_api_key_saves_nonactionable_materials(una
     exported = render_report_html(final)
     assert 'income_statement' in exported and 'get_cashflow' in exported
     assert 'No AI analysis' in exported
+    assert 'Earnings and financial results' in exported and '1–3 months' in exported
     review = final['review']
     approved = workflow.reviews.decide('partial-example', decision='approve', version=review['version'],
                                      report_hash=review['report_hash'], reviewer='Tester')
     assert approved['final_signal'] == 'No Recommendation'
+
+
+def test_revision_retains_scope_and_exact_data_snapshot(unavailable_workflow):
+    workflow, engine = unavailable_workflow
+    request = AnalysisRequest('ABC', '2026-06-12', research_objective='risk_counterevidence',
+                              research_horizon='6_to_12_months')
+    run_id = 'review-scope'
+    final = list(workflow.stream(request, run_id=run_id))[-1].to_dict()
+    version = final['review']['version']
+    digest = final['review']['report_hash']
+    workflow.reviews.decide(run_id, decision='request_changes', version=version,
+                            report_hash=digest, reviewer='Tester', comment='Explain the evidence gap')
+    child_id, payload = workflow.reviews.reserve_revision(run_id, version=version, report_hash=digest)
+    assert payload['snapshot_id'] == final['data_snapshot']['snapshot_id']
+    revised = list(workflow.stream(AnalysisRequest.from_mapping(payload), run_id=child_id))[-1].to_dict()
+    assert revised['research_objective'] == 'risk_counterevidence'
+    assert revised['research_horizon'] == '6_to_12_months'
+    assert revised['data_snapshot'] == final['data_snapshot']
+    engine.assert_not_called()
 
 
 def test_review_cannot_approve_actionable_when_required_data_failed():

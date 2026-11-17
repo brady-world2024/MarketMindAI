@@ -2,6 +2,7 @@ import type { RunSnapshot } from "../lib/api-types";
 import { ReportText, revealEvidence } from "./report-text";
 import { WorkbenchIcon } from "./workbench-icon";
 import { DataSourcesPanel } from "./data-sources-panel";
+import { researchScopeFacts } from "../lib/research-scope";
 
 type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void;
   apiBaseUrl?: string; onReplay?: () => void; replayBusy?: boolean };
@@ -30,7 +31,9 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
     <dl className="reportFacts"><div><dt>Analysis date</dt><dd>{snapshot.analysis_date ?? "—"}</dd></div>
       <div><dt>AI provider</dt><dd>{snapshot.data_availability?.ai_analysis_performed === false ? "Not called" : snapshot.provider === "offline" ? "Offline demo" : snapshot.provider ?? "—"}</dd></div>
       <div><dt>Evidence items</dt><dd>{snapshot.evidence_ledger?.length ?? 0}</dd></div>
-      <div><dt>Language</dt><dd>{snapshot.output_language ?? "—"}</dd></div></dl>
+      <div><dt>Language</dt><dd>{snapshot.output_language ?? "—"}</dd></div>
+      {researchScopeFacts(snapshot).map(({ label, value }) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    </dl>
     <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay} replayBusy={replayBusy} />
     {decision?.executive_summary || decision?.investment_thesis
       ? <p className="resultSummary">{decision.executive_summary || decision.investment_thesis}</p>

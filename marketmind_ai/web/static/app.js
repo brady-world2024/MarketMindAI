@@ -71,6 +71,8 @@ function currentPayload() {
     quick_model: resolvedModelValue("quick"),
     deep_model: resolvedModelValue("deep"),
     output_language: $("languageSelect").value,
+    research_objective: $("researchObjectiveSelect").value || null,
+    research_horizon: $("researchHorizonSelect").value || null,
     research_depth: Number($("depthInput").value),
     checkpoint_enabled: $("checkpointInput").checked,
     model_call_limit: $("modelCallLimitInput").value.trim() ? Number($("modelCallLimitInput").value) : null,
@@ -495,7 +497,26 @@ function renderDataPreflight(snapshot) {
   if ($("preflightDetails").innerHTML !== html) $("preflightDetails").innerHTML = html;
 }
 
+const researchObjectiveLabels = {
+  company_overview: "Company overview",
+  earnings: "Earnings and financial results",
+  risk_counterevidence: "Risks and counterevidence",
+};
+const researchHorizonLabels = {
+  "1_to_4_weeks": "1–4 weeks",
+  "1_to_3_months": "1–3 months",
+  "6_to_12_months": "6–12 months",
+};
+
 function renderRunProgress(snapshot) {
+  const scope = [
+    Object.prototype.hasOwnProperty.call(researchObjectiveLabels, snapshot.research_objective)
+      ? researchObjectiveLabels[snapshot.research_objective] : null,
+    Object.prototype.hasOwnProperty.call(researchHorizonLabels, snapshot.research_horizon)
+      ? researchHorizonLabels[snapshot.research_horizon] : null,
+  ].filter(Boolean).join(" · ");
+  $("researchScope").textContent = scope;
+  $("researchScope").hidden = !scope;
   const agents = snapshot.agents || [];
   const active = agents.find((agent) => agent.status === "in_progress");
   const lastAgent = agents.find((agent) => agent.label === snapshot.current_agent || agent.key === snapshot.current_agent);
@@ -777,6 +798,7 @@ async function startRun() {
       message: "Symbol validated and run created.",
     });
     renderSnapshot({ run_id: response.run_id, ticker: payload.ticker, analysis_date: payload.analysis_date,
+      research_objective: payload.research_objective, research_horizon: payload.research_horizon,
       status: "queued", provider: payload.llm_provider, started_at: new Date().toISOString(),
       latest_update: "Preparing research.", reports: [], agents: [], messages: [], tool_calls: [] });
     connectRunStream(response.run_id);

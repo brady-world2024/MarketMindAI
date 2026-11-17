@@ -1,3 +1,5 @@
+import type { ResearchHorizon, ResearchObjective } from "./research-scope";
+
 export type ModelOption = {
   label: string;
   value: string;
@@ -110,6 +112,8 @@ export type ModelUsage = {
 };
 
 export type RunSnapshot = {
+  research_objective?: ResearchObjective | null;
+  research_horizon?: ResearchHorizon | null;
   research_cutoff?: { requested_date?: string; effective_session_date?: string; cutoff_at?: string;
     cutoff_at_local?: string; market_timezone?: string; calendar_id?: string; calendar_version?: string } | null;
   data_snapshot?: { snapshot_id?: string; manifest_sha256?: string; policy_version?: string;

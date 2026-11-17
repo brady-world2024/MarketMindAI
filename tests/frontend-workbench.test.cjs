@@ -61,6 +61,25 @@ test('the progress card shows the saved cutoff and data coverage before AI start
   assert.doesNotMatch(unsupported, /63 \/ 50/);
 });
 
+test('scope shown in progress and reports uses the saved optional selections', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchProgress } = loadModule('components/research-progress.tsx');
+  const { ResearchReport } = loadModule('components/research-report.tsx');
+  const { researchScopeFacts } = loadModule('lib/research-scope.ts');
+  const snapshot = { ...preflight.blocked, ticker: 'ABC', analysis_date: '2026-07-04',
+    research_objective: 'earnings', research_horizon: '6_to_12_months' };
+  const progress = renderToStaticMarkup(React.createElement(ResearchProgress,
+    {snapshot, running: false, streamState: 'finished', onReconnect() {}}));
+  const report = renderToStaticMarkup(React.createElement(ResearchReport,
+    {snapshot, onOpenReport() {}, onExport() {}}));
+  for (const html of [progress, report]) {
+    assert.match(html, /Earnings and financial results/);
+    assert.match(html, /6–12 months/);
+  }
+  assert.deepEqual(Array.from(researchScopeFacts({})), []);
+});
+
 test('snapshot provenance distinguishes admitted, excluded and unverified sources with safe downloads', () => {
   const React = require('../frontend/node_modules/react');
   const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
@@ -78,11 +97,13 @@ test('snapshot provenance distinguishes admitted, excluded and unverified source
 
 test('replay preserves saved security, date and mode while isolating demo models and credentials', () => {
   const { buildReplayRequest } = loadModule('lib/snapshot-replay.ts');
-  const saved = { ticker: 'NVDA', analysis_date: '2026-07-04', data_mode: 'demo', data_snapshot: { snapshot_id: 'saved' }, selected_analysts: ['market'], output_language: 'English' };
+  const saved = { ticker: 'NVDA', analysis_date: '2026-07-04', data_mode: 'demo', data_snapshot: { snapshot_id: 'saved' },
+    selected_analysts: ['market'], output_language: 'English', research_objective: 'earnings', research_horizon: '1_to_3_months' };
   const live = { provider: 'openai', apiKey: 'secret', baseUrl: 'https://live.example', quickModel: 'q', deepModel: 'd', validationResult: { valid: true } };
   const replay = buildReplayRequest(saved, live);
   assert.equal(replay.ticker, 'NVDA'); assert.equal(replay.analysis_date, '2026-07-04');
   assert.equal(replay.snapshot_id, 'saved'); assert.equal(replay.llm_provider, 'offline');
+  assert.equal(replay.research_objective, 'earnings'); assert.equal(replay.research_horizon, '1_to_3_months');
   assert.equal(replay.api_key, null); assert.equal(replay.base_url, null);
   assert.equal(replay.quick_model, 'heuristic-fast'); assert.equal(replay.deep_model, 'heuristic-deep');
   assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, provider: 'offline' }), /live.*connection/i);

@@ -52,6 +52,21 @@ test('static progress shows the current preflight result and clears saved data o
   assert.doesNotMatch($('preflightDetails').innerHTML, /63 \/ 50|2026-03-31/);
 });
 
+test('static research sends optional scope and shows the choices saved in each run', () => {
+  const { context, $ } = app();
+  assert.equal(context.currentPayload().research_objective, null);
+  assert.equal(context.currentPayload().research_horizon, null);
+  $('researchObjectiveSelect').value = 'earnings';
+  $('researchHorizonSelect').value = '6_to_12_months';
+  assert.equal(context.currentPayload().research_objective, 'earnings');
+  assert.equal(context.currentPayload().research_horizon, '6_to_12_months');
+  context.renderRunProgress({status: 'running', research_objective: 'risk_counterevidence', research_horizon: '1_to_4_weeks'});
+  assert.match($('researchScope').textContent, /Risks and counterevidence · 1–4 weeks/);
+  context.renderRunProgress({status: 'completed'});
+  assert.equal($('researchScope').textContent, '');
+  assert.equal($('researchScope').hidden, true);
+});
+
 test('static report shows frozen cutoff, source admission and unverified legacy provenance', () => {
   const { context, $ } = app();
   context.renderSourceAvailability({ research_cutoff: {requested_date: '2026-07-04', effective_session_date: '2026-07-02', cutoff_at: '2026-07-02T20:00:00Z', cutoff_at_local: '2026-07-02T16:00:00-04:00', market_timezone: 'America/New_York'},

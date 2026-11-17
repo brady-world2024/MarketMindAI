@@ -260,6 +260,8 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
             "deep_model": request.deep_model,
             "output_language": request.output_language,
             "selected_analysts": request.analysts,
+            "research_objective": request.research_objective,
+            "research_horizon": request.research_horizon,
             "started_at": "",
             "finished_at": "",
             "current_agent": None,

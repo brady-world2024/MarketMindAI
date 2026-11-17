@@ -481,6 +481,18 @@ class TestResearchManagerAgent(unittest.TestCase):
         self.assertIn("evidence ids", prompt)
         self.assertIn("strongest counterargument", prompt)
 
+    def test_research_manager_uses_selected_objective_and_horizon(self):
+        from marketmind_ai.graph.research_scope import scope_guidance
+
+        captured = {}
+        llm = _structured_rm_llm(captured)
+        manager = create_research_manager(llm, DummyOfflineRuntime(),
+                                         scope_guidance=scope_guidance("earnings", "1_to_4_weeks"))
+        manager(_make_rm_state())
+        self.assertIn("reported earnings", captured["prompt"])
+        self.assertIn("1–4 weeks", captured["prompt"])
+        self.assertIn("No Recommendation", captured["prompt"])
+
     def test_prompt_includes_memory_context_when_available(self):
         captured = {}
         llm = _structured_rm_llm(captured)
@@ -546,10 +558,15 @@ class TestPortfolioManagerAgent(unittest.TestCase):
                 "evidence_ledger": [],
             }
 
-        pm = create_portfolio_manager(llm, DummyOfflineRuntime(), verifier_callback)
+        from marketmind_ai.graph.research_scope import scope_guidance
+
+        pm = create_portfolio_manager(llm, DummyOfflineRuntime(), verifier_callback,
+                                      scope_guidance=scope_guidance("risk_counterevidence", "6_to_12_months"))
         pm(_make_pm_state())
 
         prompt = captured["prompt"]
+        self.assertIn("downside risks and counterevidence", prompt)
+        self.assertIn("6–12 months", prompt)
         self.assertIn("Core Claims", prompt)
         self.assertIn("evidence ids", prompt)
         self.assertIn("strongest counterargument", prompt)

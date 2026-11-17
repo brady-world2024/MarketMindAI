@@ -11,7 +11,8 @@ from marketmind_ai.web.app import create_app
 
 def test_api_replays_without_symbol_network_and_serves_only_safe_verified_sources(tmp_path, monkeypatch):
     graph = MarketMindGraph(storage_root=tmp_path)
-    first = list(graph.stream(AnalysisRequest('NVDA', '2026-06-13', llm_provider='offline'), run_id='saved'))[-1].to_dict()
+    first = list(graph.stream(AnalysisRequest('NVDA', '2026-06-13', llm_provider='offline',
+        research_objective='earnings', research_horizon='1_to_3_months'), run_id='saved'))[-1].to_dict()
     identifier = first['data_snapshot']['snapshot_id']
     spies = []
     for adapters in VENDOR_METHODS.values():
@@ -34,6 +35,7 @@ def test_api_replays_without_symbol_network_and_serves_only_safe_verified_source
             pass
 
     payload = {'ticker': 'NVDA', 'analysis_date': '2026-06-13', 'llm_provider': 'offline',
+               'research_objective': first['research_objective'], 'research_horizon': first['research_horizon'],
                'quick_model': 'offline-draft', 'deep_model': 'offline-reasoner', 'snapshot_id': identifier}
     monkeypatch.setattr('marketmind_ai.web.app.AnalysisThread', QueuedThread)
     original_client = TestClient(create_app(str(tmp_path)))
@@ -43,12 +45,17 @@ def test_api_replays_without_symbol_network_and_serves_only_safe_verified_source
     client = TestClient(create_app(str(tmp_path)))
     recovered = client.get(queued.json()['result_url']).json()
     assert recovered['job_status'] == 'interrupted'
+    assert recovered['research_objective'] == 'earnings'
+    assert recovered['research_horizon'] == '1_to_3_months'
     response = client.post('/api/runs', json={**payload, 'snapshot_id': recovered['data_snapshot']['snapshot_id']})
     assert response.status_code == 200, response.text
     assert response.json()['run_id'] != queued.json()['run_id']
     result = client.get(response.json()['result_url']).json()
     assert result['data_snapshot'] == first['data_snapshot']
     assert result['status'] == 'completed'
+    assert result['research_objective'] == 'earnings'
+    assert result['research_horizon'] == '1_to_3_months'
+    assert 'Earnings and financial results' in client.get(response.json()['report_url']).text
     assert sum(spy.call_count for spy in spies) == 0
     record = first['source_records'][0]
     raw = client.get(f'/api/snapshots/{identifier}/sources/{record["record_id"]}')
