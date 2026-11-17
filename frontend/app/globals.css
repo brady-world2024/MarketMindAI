@@ -281,6 +281,11 @@ textarea { resize: vertical; line-height: 1.65; }
 .reviewDetails { border-top: 1px solid var(--line-soft); padding-top: 14px; min-width: 0; }
 .reviewDetails > summary { cursor: pointer; font-size: 12px; font-weight: 500; margin-bottom: 13px; color: #c9d6e6; }
 .reviewDetails p, .reviewDetails li { font-size: 11px; color: var(--muted); line-height: 1.8; overflow-wrap: anywhere; }
+.claimCheck { scroll-margin-top: 24px; }
+.claimCheck:focus, .claimCheck:target { outline: 1px solid var(--accent); outline-offset: 5px; border-radius: 3px; }
+.claimCheck blockquote { margin: 10px 0; padding: 8px 12px; border-left: 2px solid var(--accent); color: var(--ink); overflow-wrap: anywhere; }
+.claimCheck h4 { margin: 12px 0 6px; font-size: 12px; }
+.calculationFormula { font-family: var(--font-data); }
 .reviewTableWrap { overflow-x: auto; max-width: 100%; scrollbar-width: thin; scrollbar-color: #3c526c transparent; }
 .reviewTable { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 480px; font-size: 10px; }
 .reviewTable caption { text-align: left; color: var(--subtle); font-size: 10px; padding: 14px 0 12px; }

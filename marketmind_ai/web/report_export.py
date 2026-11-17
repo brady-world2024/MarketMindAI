@@ -202,6 +202,84 @@ def _provenance_section(snapshot: dict[str, Any]) -> str:
     return result
 
 
+def _claim_check_id(snapshot, kind, index):
+    return f'{snapshot.get("run_id", "report")}-{kind}-{index + 1}'
+
+
+def _claim_navigation_section(snapshot: dict[str, Any]) -> str:
+    claims = (snapshot.get("final_structured_decision") or {}).get("core_claims") or []
+    if not claims:
+        return ""
+    checks = snapshot.get("report_verification") or {}
+    evidence_ids = {item.get("evidence_id") for item in snapshot.get("evidence_ledger") or []}
+    rows = []
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict) or not claim.get("claim"):
+            text = claim.get("statement", "") if isinstance(claim, dict) else str(claim)
+            rows.append(f"<li>{escape(str(text))}</li>")
+            continue
+        links = []
+        for check_index, check in enumerate(checks.get("qualitative_claims") or []):
+            if check.get("claim_number") == index + 1 and check.get("claim") == claim.get("claim"):
+                target = _claim_check_id(snapshot, "claim-check", check_index)
+                links.append(f'<a href="#{escape(target, quote=True)}">Source check</a>')
+        for check_index, check in enumerate(checks.get("financial_claims") or []):
+            evidence_id = check.get("evidence_id")
+            if evidence_id and evidence_id in evidence_ids and evidence_id in (claim.get("evidence_ids") or []):
+                target = _claim_check_id(snapshot, "calculation", check_index)
+                links.append(f'<a href="#{escape(target, quote=True)}">Calculation {escape(evidence_id)}</a>')
+        rows.append(f'<li>{escape(str(claim.get("claim") or ""))} {" · ".join(links)}</li>')
+    return '<section class="report-section"><h2>Supporting reasons</h2><ul>' + "".join(rows) + "</ul></section>"
+
+
+def _claim_check_sections(snapshot: dict[str, Any]) -> str:
+    verification = snapshot.get("report_verification") or {}
+    verdicts = {"supported": "Supported", "contradicted": "Contradicted", "insufficient": "Insufficient evidence"}
+    result = ""
+
+    def source_link(record_id, label):
+        snapshot_id = (snapshot.get("data_snapshot") or {}).get("snapshot_id")
+        if not snapshot_id or not record_id:
+            return ""
+        url = "/api/snapshots/" + quote(str(snapshot_id), safe="") + "/sources/" + quote(str(record_id), safe="")
+        return f'<a href="{escape(url, quote=True)}" download>{label}</a>'
+
+    for index, check in enumerate(verification.get("qualitative_claims") or []):
+        target = _claim_check_id(snapshot, "claim-check", index)
+        result += f'<section class="report-section" id="{escape(target, quote=True)}"><h2>Qualitative Claim Verification</h2>'
+        result += f'<h3>{escape(str(check.get("claim") or ""))}</h3>'
+        result += _meta_row("Verification", verdicts.get(check.get("status"), "Unverified"))
+        result += f'<p>{escape(str(check.get("reason") or ""))}</p>'
+        for citation in check.get("citations") or []:
+            result += f'<h4>Quoted evidence</h4><blockquote>{escape(str(citation.get("quote") or ""))}</blockquote>'
+            result += _meta_row("Provider", citation.get("provider")) + _meta_row("Published", citation.get("published_at"))
+            if citation.get("context") and citation["context"] != citation.get("quote"):
+                result += f'<h4>Nearby context</h4><p>{escape(str(citation["context"]))}</p>'
+            result += source_link(citation.get("record_id"), "Download saved source")
+        result += "</section>"
+    for index, check in enumerate(verification.get("financial_claims") or []):
+        target = _claim_check_id(snapshot, "calculation", index)
+        result += f'<section class="report-section" id="{escape(target, quote=True)}"><h2>Financial Claim Verification</h2>'
+        metric = {"revenue_yoy": "Revenue year over year", "operating_margin": "Operating margin"}.get(
+            check.get("metric"), "Financial calculation")
+        result += f"<h3>{metric}</h3>" + _meta_row("Verification", verdicts.get(check.get("status"), "Unverified"))
+        result += f'<p>{escape(str(check.get("reason") or ""))}</p>'
+        for label, key in (("Claim", "claim"), ("Formula", "formula"), ("Display scale", "display_scale"),
+                           ("SEC filing", "accession"), ("Currency", "currency")):
+            if check.get(key) is not None:
+                result += _meta_row(label, str(check[key]))
+        for label, key in (("Reported percentage", "declared_percentage"), ("Calculated percentage", "rounded_percentage")):
+            if check.get(key) is not None:
+                result += _meta_row(label, f"{check[key]}%")
+        for item in check.get("inputs") or []:
+            details = (f'{item.get("label", "")} · {item.get("period_end", "")} · Original {item.get("raw_value", "")}'
+                       f' · Normalized {item.get("value", "")} {check.get("currency") or ""}'
+                       f' · Row {item.get("line", "")}, column {item.get("column", "")}')
+            result += f"<p>{escape(details)}</p>"
+        result += source_link(check.get("record_id"), "Download saved SEC source") + "</section>"
+    return result
+
+
 def _source_sections(snapshot: dict[str, Any]) -> str:
     availability = snapshot.get('data_availability') or {}
     mode = snapshot.get('data_mode') or 'unknown'
@@ -214,12 +292,7 @@ def _source_sections(snapshot: dict[str, Any]) -> str:
         summary += 'Historical report: data mode and source isolation have not been verified.\n'
     summary += json.dumps(availability, ensure_ascii=False, indent=2)
     result = _provenance_section(snapshot) + _pre_section('Data Availability / 数据完整性', summary)
-    qualitative_checks = (snapshot.get('report_verification') or {}).get('qualitative_claims')
-    if qualitative_checks:
-        result += _pre_section('Qualitative Claim Verification', json.dumps(qualitative_checks, ensure_ascii=False, indent=2))
-    financial_checks = (snapshot.get('report_verification') or {}).get('financial_claims')
-    if financial_checks:
-        result += _pre_section('Financial Claim Verification', json.dumps(financial_checks, ensure_ascii=False, indent=2))
+    result += _claim_check_sections(snapshot)
     for title, key in [('Source Attempts / 来源尝试', 'source_attempts'), ('Retained Source Materials / 已保留材料', 'source_materials')]:
         if snapshot.get(key):
             result += _pre_section(title, json.dumps(snapshot[key], ensure_ascii=False, indent=2))
@@ -290,8 +363,9 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
         )
     structured_sections = "".join(
         [
-            _source_sections(snapshot),
             _structured_decision_section(structured_decision if isinstance(structured_decision, dict) else {}),
+            _claim_navigation_section(snapshot),
+            _source_sections(snapshot),
             _quality_section(report_quality if isinstance(report_quality, dict) else {}),
             _evidence_ledger_section(evidence_ledger if isinstance(evidence_ledger, list) else []),
         ]

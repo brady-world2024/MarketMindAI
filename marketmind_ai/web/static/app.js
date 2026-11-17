@@ -310,8 +310,8 @@ function linkEvidenceText(escapedText, ids) {
 }
 
 function openEvidenceLink(event) {
-  const link = event.target.closest?.("a[data-evidence-id]");
-  const anchor = evidenceAnchorId(link?.dataset.evidenceId);
+  const link = event.target.closest?.("a[data-evidence-id], a[data-claim-check]");
+  const anchor = link?.dataset.claimCheck || evidenceAnchorId(link?.dataset.evidenceId);
   if (!anchor) return;
   const target = document.getElementById(anchor);
   if (!target) return;
@@ -389,11 +389,13 @@ function renderDecisionSummary(snapshot) {
   $("finalSummary").textContent = finalSummaryText(snapshot);
   const evidenceIds = (snapshot.evidence_ledger || []).map((item) => item.evidence_id);
   const ids = evidenceIdSet(evidenceIds);
-  const reasons = (decision.core_claims || []).flatMap((item) => {
+  const reasons = (decision.core_claims || []).flatMap((item, index) => {
     const claim = typeof item === "string" ? item : item.claim || item.statement;
     if (!claim) return [];
     const references = (typeof item === "string" ? [] : item.evidence_ids || []).filter((id) => ids.has(String(id).trim().toUpperCase()));
-    return [`<li>${linkEvidenceText(escapeHtml(claim), ids)}${references.length ? `<span class="evidence-citations"> ${references.map(evidenceLink).join(" ")}</span>` : ""}</li>`];
+    const checks = claimCheckLinks(snapshot, index).map(link =>
+      `<a class="evidence-link" href="#${escapeHtml(link.id)}" data-claim-check="${escapeHtml(link.id)}">${escapeHtml(link.label)}</a>`).join(" ");
+    return [`<li>${linkEvidenceText(escapeHtml(claim), ids)}${references.length ? `<span class="evidence-citations"> ${references.map(evidenceLink).join(" ")}</span>` : ""} ${checks}</li>`];
   });
   if (!reasons.length && decision.investment_thesis) reasons.push(`<li>${linkEvidenceText(escapeHtml(decision.investment_thesis), ids)}</li>`);
   const list = (items) => `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;

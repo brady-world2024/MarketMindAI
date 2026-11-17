@@ -5,6 +5,7 @@ type Props = { text: string; evidenceIds?: string[]; evidencePrefix?: string };
 /** Small text-only renderer: model output never becomes executable HTML. */
 export function revealEvidence(id: string) {
   const target = document.getElementById(id);
+  if (target?.tagName === "DETAILS") (target as HTMLDetailsElement).open = true;
   let parent = target?.parentElement;
   while (parent) {
     if (parent.tagName === "DETAILS") (parent as HTMLDetailsElement).open = true;

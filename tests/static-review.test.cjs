@@ -23,12 +23,25 @@ function controller() {
       return new Promise((resolve, reject) => requests.set(url, { resolve, reject }));
     },
     document: { querySelectorAll() { return []; }, createElement() { return { dataset: {}, addEventListener() {}, setAttribute() {} }; } },
-    escapeHtml: String,
+    escapeHtml(value) { return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;'); },
+    evidenceAnchorId(value) { return /^E\d+$/.test(value) ? `evidence-${value}` : null; },
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/claim-evidence.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/human-review.js'), 'utf8'), context);
   return { context, state, requests, elements };
 }
 
+test('static review shows quotations, saved context and reproducible financial inputs', () => {
+  const { context, elements } = controller();
+  context.renderHumanReview(require('./claim-evidence-fixture.json'));
+  const html = elements.get('reviewEvidenceBody').innerHTML;
+  for (const value of ['claim-run-claim-check-1', 'claim-run-calculation-1', 'Quoted evidence',
+    'Nearby context', 'Revenue 110', '10.0%', '2025-03-31', '110000000', '1000000']) {
+    assert.ok(html.includes(value), value);
+  }
+  assert.match(html, /&lt;script&gt;source text&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+});
 test('the latest saved report selection wins when responses arrive out of order', async () => {
   const { context, state, requests } = controller();
   const oldLoad = context.openReviewedRun('old');

@@ -2,6 +2,30 @@ from marketmind_ai.graph.request import AnalysisRequest
 from marketmind_ai.graph.snapshot_support import SnapshotProjector
 from marketmind_ai.symbols import SymbolResolution, ValidationFlags
 from marketmind_ai.web.report_export import render_report_html
+import json
+from pathlib import Path
+
+
+def test_export_has_readable_claim_quotes_and_calculation_inputs():
+    snapshot = json.loads((Path(__file__).parent / "claim-evidence-fixture.json").read_text())
+    html = render_report_html(snapshot)
+    for value in ("Quoted evidence", "Nearby context", "Revenue 110", "10.0%", "2025-03-31",
+                  "110000000", "1000000", "0000000001-26-000001"):
+        assert value in html
+    assert "<script>source text</script>" not in html
+    assert "&lt;script&gt;source text&lt;/script&gt;" in html
+    for anchor in ("claim-run-claim-check-1", "claim-run-calculation-1"):
+        assert f'id="{anchor}"' in html and f'href="#{anchor}"' in html
+    assert 'href="#claim-run-calculation-2"' not in html
+
+
+def test_export_keeps_legacy_string_and_statement_claims_readable():
+    snapshot = {"ticker": "ABC", "final_structured_decision": {
+        "core_claims": ["Legacy claim", {"statement": "Legacy statement", "evidence_ids": ["E1"]}],
+    }}
+    html = render_report_html(snapshot)
+    assert "Legacy claim" in html and "Legacy statement" in html
+    assert "Source check</a>" not in html and "Calculation E1</a>" not in html
 
 
 class DummySignalProcessor:

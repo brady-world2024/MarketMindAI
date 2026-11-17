@@ -23,6 +23,7 @@ function app() {
     localStorage: { setItem() {} }, alert: message => alerts.push(message),
     window: { setTimeout() {}, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {} },
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/claim-evidence.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/app.js'), 'utf8').replace(/bootstrap\(\);\s*$/, ''), context);
   vm.runInContext(`state.providers = [{ value: 'openai', label: 'OpenAI', requires_api_key: true, quick_models: [{ value: 'a', label: 'A' }], deep_models: [{ value: 'b', label: 'B' }] }, { value: 'offline', label: 'Offline', requires_api_key: false, quick_models: [{ value: 'fixture', label: 'Fixture' }], deep_models: [{ value: 'fixture', label: 'Fixture' }] }];`, context);
   $('providerSelect').value = 'openai'; $('quickModelSelect').value = 'a'; $('deepModelSelect').value = 'b';
@@ -65,6 +66,15 @@ test('static research sends optional scope and shows the choices saved in each r
   context.renderRunProgress({status: 'completed'});
   assert.equal($('researchScope').textContent, '');
   assert.equal($('researchScope').hidden, true);
+});
+
+test('static conclusions link to existing claim checks and valid evidence calculations', () => {
+  const { context, $ } = app();
+  const snapshot = require('./claim-evidence-fixture.json');
+  context.renderDecisionSummary(snapshot);
+  assert.match($('decisionDetails').innerHTML, /href="#claim-run-claim-check-1"/);
+  assert.match($('decisionDetails').innerHTML, /href="#claim-run-calculation-1"/);
+  assert.doesNotMatch($('decisionDetails').innerHTML, /href="#claim-run-calculation-2"/);
 });
 
 test('static report shows frozen cutoff, source admission and unverified legacy provenance', () => {

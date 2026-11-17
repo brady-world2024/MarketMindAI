@@ -141,6 +141,7 @@ function renderHumanReview(snapshot) {
       <ul>${(decision.key_risks || []).map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>
       <p><strong>Counterargument:</strong> ${escapeHtml(decision.counterargument || "Not captured")}</p>
       <p>${escapeHtml(decision.counterargument_response || "")}</p>
+      ${renderClaimChecks(snapshot)}
       <div class="review-table-wrap"><table><caption>Evidence available for this report version</caption><thead><tr><th>Evidence</th><th>Source</th><th>Excerpt</th></tr></thead><tbody>${evidence}</tbody></table></div>`;
     $("reviewHistoryBody").innerHTML = (review?.history || []).map((item) => `<article class="review-audit">
       <strong>${escapeHtml(item.decision.replaceAll("_", " "))} · ${escapeHtml(item.reviewer)}</strong>

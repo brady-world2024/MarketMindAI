@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const { createRequire } = require('node:module');
 const ts = require('../frontend/node_modules/typescript');
 const preflight = require('./preflight-fixtures.cjs');
+const claimFixture = require('./claim-evidence-fixture.json');
 
 function loadModule(relative) {
   const filename = path.join(__dirname, '../frontend', relative);
@@ -78,6 +79,34 @@ test('scope shown in progress and reports uses the saved optional selections', (
     assert.match(html, /6–12 months/);
   }
   assert.deepEqual(Array.from(researchScopeFacts({})), []);
+});
+
+test('claim links open their recorded quotations and calculations without binding unrelated checks', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchReport } = loadModule('components/research-report.tsx');
+  const { HumanReviewPanel } = loadModule('components/human-review.tsx');
+  const { claimCheckLinks } = loadModule('lib/claim-evidence.ts');
+  const report = renderToStaticMarkup(React.createElement(ResearchReport,
+    {snapshot: claimFixture, onOpenReport() {}, onExport() {}}));
+  assert.match(report, /href="#claim-run-claim-check-1"/);
+  assert.match(report, /href="#claim-run-calculation-1"/);
+  assert.doesNotMatch(report, /href="#claim-run-calculation-2"/);
+  assert.ok(report.indexOf('Sales grew while demand weakened.') < report.indexOf('Research cutoff &amp; saved data'));
+  const review = renderToStaticMarkup(React.createElement(HumanReviewPanel,
+    {snapshot: claimFixture, apiBaseUrl: 'http://localhost:8000', onOpenRun() {}, onSnapshot() {}, onRevision() {}}));
+  for (const value of ['id="claim-run-claim-check-1"', 'id="claim-run-calculation-1"', 'Quoted evidence',
+    'Nearby context', 'Revenue 110', '10.0%', '2025-03-31', '110000000', '1000000', '0000000001-26-000001']) {
+    assert.ok(review.includes(value), value);
+  }
+  assert.match(review, /&lt;script&gt;source text&lt;\/script&gt;/);
+  assert.doesNotMatch(review, /<script>/);
+  assert.match(review, /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\/sources\/income-record/);
+  const changed = {...claimFixture, final_structured_decision: {
+    ...claimFixture.final_structured_decision, core_claims: [{claim:'A different conclusion.',evidence_ids:[]}],
+  }};
+  assert.equal(claimCheckLinks(changed, 0).length, 0);
+  assert.equal(claimCheckLinks({...claimFixture, report_verification:null}, 0).length, 0);
 });
 
 test('snapshot provenance distinguishes admitted, excluded and unverified sources with safe downloads', () => {

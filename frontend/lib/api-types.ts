@@ -78,7 +78,7 @@ export type QualitativeClaimCheck = {
   claim: string;
   status: "supported" | "contradicted" | "insufficient";
   reason: string;
-  citations: { record_id: string; quote: string; provider: string; published_at: string }[];
+  citations: { record_id: string; quote: string; provider: string; published_at: string; context?: string }[];
 };
 
 export type FinancialClaimCheck = {
