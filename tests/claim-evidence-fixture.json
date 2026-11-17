@@ -1,0 +1,78 @@
+{
+  "run_id": "claim-run",
+  "ticker": "ABC",
+  "analysis_date": "2026-06-12",
+  "status": "completed",
+  "final_signal": "No Recommendation",
+  "final_decision": "Evidence needs review.",
+  "agents": [],
+  "reports": [],
+  "messages": [],
+  "tool_calls": [],
+  "data_snapshot": {"snapshot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "final_structured_decision": {
+    "decision_status": "No Recommendation",
+    "executive_summary": "Sales grew while demand weakened.",
+    "core_claims": [
+      {"claim": "Revenue increased 10.0%.", "evidence_ids": ["E1"]},
+      {"claim": "Demand weakened.", "evidence_ids": ["E2", "E99"]}
+    ],
+    "key_risks": ["Demand uncertainty."],
+    "evidence_gap": "Resolve the conflicting demand evidence."
+  },
+  "evidence_ledger": [
+    {"evidence_id": "E1", "claim": "Revenue increased 10.0%.", "excerpt": "Revenue 110", "provider": "sec"},
+    {"evidence_id": "E2", "claim": "Demand weakened.", "excerpt": "Demand remained stable", "provider": "publisher"}
+  ],
+  "report_verification": {
+    "status": "fail",
+    "qualitative_claims": [
+      {
+        "claim_number": 1,
+        "claim": "Revenue increased 10.0%.",
+        "status": "supported",
+        "reason": "The saved filing supports this comparison.",
+        "citations": [{
+          "record_id": "income-record",
+          "provider": "sec",
+          "published_at": "2026-05-01T15:00:00Z",
+          "quote": "Revenue 110",
+          "context": "Revenue 110; prior-year revenue 100. <script>source text</script>"
+        }]
+      },
+      {
+        "claim_number": 2,
+        "claim": "Demand weakened.",
+        "status": "contradicted",
+        "reason": "The saved article describes stable demand.",
+        "citations": [{
+          "record_id": "news-record",
+          "provider": "publisher",
+          "published_at": "2026-06-12T18:00:00Z",
+          "quote": "Demand remained stable",
+          "context": "Demand remained stable during the quarter."
+        }]
+      }
+    ],
+    "financial_claims": [
+      {
+        "evidence_id": "E1",
+        "metric": "revenue_yoy",
+        "status": "supported",
+        "reason": "Matches the SEC calculation at the declared precision.",
+        "declared_percentage": "10.0",
+        "rounded_percentage": "10.0",
+        "formula": "(current revenue / prior-year revenue - 1) × 100",
+        "currency": "USD",
+        "display_scale": 1000000,
+        "record_id": "income-record",
+        "accession": "0000000001-26-000001",
+        "inputs": [
+          {"label": "Revenue", "line": 2, "column": 1, "period_end": "2026-03-31", "raw_value": "110", "value": "110000000"},
+          {"label": "Revenue", "line": 2, "column": 2, "period_end": "2025-03-31", "raw_value": "100", "value": "100000000"}
+        ]
+      },
+      {"evidence_id": "E99", "metric": "operating_margin", "status": "insufficient", "reason": "Unknown evidence ID."}
+    ]
+  }
+}

@@ -20,6 +20,10 @@
 .human-review button:disabled { opacity: .5; cursor: not-allowed; }
 .human-review button:focus-visible, .human-review summary:focus-visible, .human-review textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .human-review details { padding-block: 16px; border-top: 1px solid var(--line); }
+.claim-check { scroll-margin-top: 24px; }
+.claim-check:focus, .claim-check:target { outline: 1px solid var(--accent); outline-offset: 4px; }
+.claim-check blockquote { margin-inline: 0; padding: 8px 12px; border-left: 2px solid var(--accent); overflow-wrap: anywhere; }
+.calculation-formula { font-family: monospace; }
 .human-review summary { font-weight: 700; cursor: pointer; }
 .human-review [hidden] { display: none !important; }
 .review-queue { display: flex; align-items: flex-end; gap: 10px; }

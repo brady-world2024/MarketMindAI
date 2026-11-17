@@ -3,6 +3,7 @@ import { ReportText, revealEvidence } from "./report-text";
 import { WorkbenchIcon } from "./workbench-icon";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { researchScopeFacts } from "../lib/research-scope";
+import { claimCheckLinks } from "../lib/claim-evidence";
 
 type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void;
   apiBaseUrl?: string; onReplay?: () => void; replayBusy?: boolean };
@@ -34,7 +35,6 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
       <div><dt>Language</dt><dd>{snapshot.output_language ?? "—"}</dd></div>
       {researchScopeFacts(snapshot).map(({ label, value }) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
     </dl>
-    <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay} replayBusy={replayBusy} />
     {decision?.executive_summary || decision?.investment_thesis
       ? <p className="resultSummary">{decision.executive_summary || decision.investment_thesis}</p>
       : <ReportText text={snapshot.final_decision ?? "No final summary is available."} evidenceIds={evidenceIds} evidencePrefix={snapshot.run_id} />}
@@ -44,6 +44,8 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
       {reasons.map((item, i) => <li key={i}>{item.claim} <span className="evidenceRefs">
         {(item.evidence_ids ?? []).filter((id) => evidenceIds.includes(id)).map((id) =>
           <a key={id} className="evidenceRef" href={`#${snapshot.run_id}-evidence-${id}`} onClick={() => revealEvidence(`${snapshot.run_id}-evidence-${id}`)}>{id}</a>)}
+        {!!decision?.core_claims?.length && claimCheckLinks(snapshot, i).map(link =>
+          <a key={link.id} className="evidenceRef" href={`#${link.id}`} onClick={() => revealEvidence(link.id)}>{link.label}</a>)}
       </span></li>)}
     </ul></div>}
     <div className="resultConsiderations">
@@ -57,5 +59,6 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
       <p>Model-reported confidence: {decision.confidence}/100. This score is not a calibrated probability.</p>
       <p>{decision.confidence_rationale ?? "No confidence rationale was captured."}</p></details>}
     <details className="reportExtra"><summary>View original decision text</summary><pre className="rawOutput">{snapshot.final_decision}</pre></details>
+    <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay} replayBusy={replayBusy} />
   </section>;
 }
