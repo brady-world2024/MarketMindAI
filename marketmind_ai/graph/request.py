@@ -27,6 +27,7 @@ class AnalysisRequest:
     checkpoint_enabled: bool = False
     human_feedback: str = ""
     snapshot_id: str | None = None
+    model_call_limit: int | None = None
 
     @classmethod
     def from_mapping(cls, payload: Dict[str, Any]) -> "AnalysisRequest":
@@ -64,6 +65,9 @@ class AnalysisRequest:
         snapshot_id = payload.get('snapshot_id') or None
         if snapshot_id is not None and (not isinstance(snapshot_id, str) or not re.fullmatch(r'[0-9a-f]{32}', snapshot_id)):
             raise ValueError('snapshot_id must identify a saved data snapshot')
+        model_call_limit = payload.get("model_call_limit")
+        if model_call_limit is not None and (type(model_call_limit) is not int or not 1 <= model_call_limit <= 2**53 - 1):
+            raise ValueError("model_call_limit must be a positive integer")
         return cls(
             ticker=ticker,
             analysis_date=parsed.isoformat(),
@@ -82,4 +86,5 @@ class AnalysisRequest:
             checkpoint_enabled=bool(payload.get("checkpoint_enabled", False)),
             human_feedback=str(payload.get("human_feedback") or "").strip(),
             snapshot_id=snapshot_id,
+            model_call_limit=model_call_limit,
         )

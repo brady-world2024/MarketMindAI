@@ -273,3 +273,21 @@ test('research progress distinguishes stopping, cancellation and timeout', () =>
   assert.match(render('timed_out', 'error'), /Research timed out/);
   assert.doesNotMatch(render('timed_out', 'error'), /Cancel research/);
 });
+
+test('usage shows budget and distinguishes missing tokens from zero', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchProgress } = loadModule('components/research-progress.tsx');
+  const render = (total, limit) => renderToStaticMarkup(React.createElement(ResearchProgress, {
+    running: false, streamState: 'finished',
+    snapshot: {status: 'error', job_status: 'budget_exhausted', model_usage: {
+      calls_started: 1, calls_failed: 0, calls_with_reported_total_tokens: total === null ? 0 : 1,
+      model_call_limit: limit, reported_total_tokens: total, model_elapsed_ms: 1250,
+    }},
+  }));
+  assert.match(render(null, 1), /Model call limit reached/);
+  assert.match(render(null, 1), /Model calls 1 \/ 1/);
+  assert.match(render(null, 1), /Provider-reported tokens Not reported/);
+  assert.match(render(0, null), /Provider-reported tokens 0/);
+  assert.match(render(0, null), /no limit/);
+});

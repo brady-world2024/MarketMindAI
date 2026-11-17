@@ -25,7 +25,7 @@ def report_hash(snapshot: dict) -> str:
             "report_verification", "report_quality", "evidence_ledger", "reports")
     # Preserve historical fingerprints; new reports bind all source evidence too.
     keys += tuple(key for key in ("data_mode", "data_availability", "source_attempts", "source_materials",
-                                  "instrument_eligibility", "research_cutoff", "data_snapshot", "source_records") if key in snapshot)
+                                  "instrument_eligibility", "research_cutoff", "data_snapshot", "source_records", "model_usage") if key in snapshot)
     payload = {key: snapshot.get(key) for key in keys}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 

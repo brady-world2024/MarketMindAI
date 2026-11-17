@@ -73,6 +73,7 @@ function currentPayload() {
     output_language: $("languageSelect").value,
     research_depth: Number($("depthInput").value),
     checkpoint_enabled: $("checkpointInput").checked,
+    model_call_limit: $("modelCallLimitInput").value.trim() ? Number($("modelCallLimitInput").value) : null,
     google_thinking_level: $("googleThinkingLevelSelect").value,
     openai_reasoning_effort: $("openaiReasoningEffortSelect").value,
     anthropic_effort: $("anthropicEffortSelect").value,
@@ -425,7 +426,7 @@ function renderRunProgress(snapshot) {
   else if (active) phase = `In progress · ${active.label}`;
   else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
   if (snapshot.data_availability?.can_recommend === false) phase = "Data incomplete · No AI analysis · No recommendation";
-  const controlPhase = { stopping: "Stopping research", cancelled: "Research cancelled", timed_out: "Research timed out" };
+  const controlPhase = { stopping: "Stopping research", cancelled: "Research cancelled", timed_out: "Research timed out", budget_exhausted: "Model call limit reached" };
   if (controlPhase[snapshot.job_status]) phase = controlPhase[snapshot.job_status];
   $("runPhase").textContent = phase;
   const cancelControls = $("cancelRunControls");
@@ -436,6 +437,11 @@ function renderRunProgress(snapshot) {
   }
   const completed = agents.filter((agent) => agent.status === "completed").length;
   $("phaseDetail").textContent = agents.length ? `${completed} of ${agents.length} agent stages complete${snapshot.report_verification ? ` · Validation: ${snapshot.report_verification.status || "recorded"}` : ""}` : "Stages appear as the run reports progress.";
+  const usage = snapshot.model_usage;
+  $("modelUsage").hidden = !usage;
+  $("modelUsage").textContent = usage
+    ? `Model calls ${usage.calls_started}${usage.model_call_limit == null ? " · no limit" : ` / ${usage.model_call_limit}`} · ${usage.calls_failed} failed · Provider-reported tokens ${usage.reported_total_tokens ?? "Not reported"} (${usage.calls_with_reported_total_tokens} calls reported a total) · Combined model call time ${(usage.model_elapsed_ms / 1000).toFixed(1)}s${usage.possibly_incomplete ? " · Last recorded usage before interruption" : ""}`
+    : "";
   renderElapsed(snapshot);
   const groups = [
     ["Research", ["market", "social", "news", "fundamentals"]],
@@ -664,6 +670,9 @@ async function startRun() {
   closeEventSource();
   try {
     const payload = currentPayload();
+    if (payload.model_call_limit !== null && (!Number.isSafeInteger(payload.model_call_limit) || payload.model_call_limit < 1)) {
+      throw new Error("Enter a positive whole number for the model call limit.");
+    }
     if (!payload.quick_model || !payload.deep_model) {
       throw new Error("Please provide both quick and deep model IDs.");
     }

@@ -330,6 +330,7 @@ export function ResearchWorkbench() {
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [researchDepth, setResearchDepth] = useState(1);
+  const [modelCallLimit, setModelCallLimit] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [interruptedRuns, setInterruptedRuns] = useState<RunSnapshot[]>([]);
@@ -620,6 +621,11 @@ export function ResearchWorkbench() {
     if ((!selectedProvider && !saved) || isRunning || reviewBusy) {
       return;
     }
+    const limit = modelCallLimit.trim() ? Number(modelCallLimit) : null;
+    if (limit !== null && (!Number.isSafeInteger(limit) || limit < 1)) {
+      setError("Enter a positive whole number for the model call limit.");
+      return;
+    }
     let replayRequest: ReturnType<typeof buildReplayRequest> | null = null;
     if (saved) {
       try { replayRequest = buildReplayRequest(saved, settings); }
@@ -666,7 +672,7 @@ export function ResearchWorkbench() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(replayRequest ?? {
+        body: JSON.stringify({ ...(replayRequest ?? {
           ticker: resolvedTicker?.resolved_symbol ?? normalizeQuery(ticker),
           analysis_date: analysisDate,
           llm_provider: provider,
@@ -678,7 +684,7 @@ export function ResearchWorkbench() {
           base_url: baseUrl.trim() || null,
           checkpoint_enabled: checkpointEnabled,
           research_depth: researchDepth,
-        }),
+        }), model_call_limit: limit }),
       });
 
       if (!response.ok) {
@@ -850,6 +856,11 @@ export function ResearchWorkbench() {
                 <label className="field"><span>Research depth</span><select value={researchDepth} onChange={(event) => setResearchDepth(Number(event.target.value))}>
                   {[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}{value === 1 ? " · Quickest" : value === 5 ? " · Most thorough" : ""}</option>)}</select>
                   <small>More depth may increase time and model usage.</small></label>
+                <label className="field"><span>Model call limit</span>
+                  <input inputMode="numeric" type="number" min={1} step={1} placeholder="No limit"
+                    value={modelCallLimit} onChange={event => setModelCallLimit(event.target.value)} />
+                  <small>Optional for this run. Failed model calls count toward the limit.</small>
+                </label>
                 <label className="toggleField"><input type="checkbox" checked={checkpointEnabled} onChange={(event) => setCheckpointEnabled(event.target.checked)} />
                   <span><strong>Resume with checkpoints</strong><small>Save workflow progress for interrupted runs.</small></span></label>
               </div></details>

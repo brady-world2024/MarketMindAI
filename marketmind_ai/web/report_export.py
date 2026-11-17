@@ -231,7 +231,7 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
     report_title = f"{ticker} Research Report"
     page_title = report_title if not company_name else f"{ticker} · {company_name} Research Report"
     analyst_text = ", ".join(snapshot.get("selected_analysts") or []) or "None"
-    final_signal = snapshot.get("final_signal") or "Pending"
+    final_signal = snapshot.get("final_signal") or ("No final recommendation" if snapshot.get("status") == "error" else "Pending")
     final_decision = snapshot.get("final_decision") or "No final decision has been produced yet."
     structured_decision = snapshot.get("final_structured_decision") or {}
     report_quality = snapshot.get("report_quality") or {}
@@ -253,6 +253,20 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
             _meta_row("Run ID", snapshot.get("run_id")),
         ]
     )
+
+    model_usage = snapshot.get("model_usage")
+    if model_usage:
+        metadata += _meta_row("Model calls", f"{model_usage['calls_started']} / {model_usage['model_call_limit'] or 'No limit'}")
+        metadata += _meta_row("Provider-reported tokens",
+                              model_usage["reported_total_tokens"] if model_usage["reported_total_tokens"] is not None else "Not reported")
+        metadata += _meta_row("Calls reporting total tokens", model_usage["calls_with_reported_total_tokens"])
+        for kind in ("input", "output"):
+            count = model_usage.get(f"reported_{kind}_tokens")
+            if count is not None:
+                metadata += _meta_row(f"Reported {kind} tokens", count)
+        if model_usage.get("possibly_incomplete"):
+            metadata += _meta_row("Usage completeness", "Last recorded usage before interruption")
+        metadata += _meta_row("Combined model call time", f"{model_usage['model_elapsed_ms'] / 1000:.1f}s")
 
     report_sections = "".join(
         _pre_section(report.get("label") or report.get("key") or "Report", report.get("content") or "")

@@ -20,6 +20,7 @@ export function researchPhase(snapshot: Partial<RunSnapshot> | null) {
   if (snapshot?.job_status === "stopping") label = "Stopping research";
   if (snapshot?.job_status === "cancelled") label = "Research cancelled";
   if (snapshot?.job_status === "timed_out") label = "Research timed out";
+  if (snapshot?.job_status === "budget_exhausted") label = "Model call limit reached";
   if (snapshot?.job_status === "interrupted") label = "Research interrupted";
   return { index, label, failed: snapshot?.status === "error" };
 }
