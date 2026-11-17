@@ -12,7 +12,7 @@ from ..dataflows.results import safe_json
 _FIELDS = (
     "run_id", "status", "ticker", "original_input", "analysis_date", "provider", "quick_model",
     "deep_model", "output_language", "selected_analysts", "data_mode", "started_at",
-    "current_agent", "research_cutoff", "data_snapshot",
+    "current_agent", "research_cutoff", "data_snapshot", "model_usage",
 )
 
 
@@ -74,6 +74,8 @@ class JobStore:
         result.update(agents=[], messages=[], reports=[], tool_calls=[])
         if owner != self.owner:
             result["job_status"] = "interrupted"
+            if result.get("model_usage") is not None:
+                result["model_usage"]["possibly_incomplete"] = True
             result["last_job_status"] = result["status"]
             result["status"] = "error"
             result["error"] = "The research server stopped before this run finished."

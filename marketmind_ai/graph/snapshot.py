@@ -107,6 +107,7 @@ class RunSnapshot:
     evidence_ledger: List[dict] = field(default_factory=list)
     review: Optional[dict] = None
     error: Optional[str] = None
+    model_usage: Optional[dict] = None
 
     @classmethod
     def create(

@@ -40,10 +40,10 @@ def _allowed_origins() -> list[str]:
 
 
 class RunSession:
-    def __init__(self, run_id: str):
+    def __init__(self, run_id: str, model_call_limit: int | None = None):
         self.run_id = run_id
         self.started_at = iso_now()
-        self.control = RunControl()
+        self.control = RunControl(model_call_limit=model_call_limit)
         self._condition = threading.Condition()
         self._history: list[dict[str, Any]] = []
         self._latest_snapshot: dict[str, Any] | None = None
@@ -70,12 +70,16 @@ class RunSession:
     def view(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
         if snapshot is None or snapshot.get("status") not in {"queued", "running"}:
             return snapshot
+        snapshot = {**snapshot, "model_usage": self.control.usage_snapshot()}
         reason = self.control.reason
         if not reason:
             return snapshot
         return {**snapshot, "job_status": "stopping", "stop_reason": reason,
-                "latest_update": ("Time limit reached. Waiting for active calls to return."
-                                  if reason == "timed_out" else "Cancellation requested. Waiting for active calls to return.")}
+                "latest_update": {
+                    "timed_out": "Time limit reached. Waiting for active calls to return.",
+                    "cancelled": "Cancellation requested. Waiting for active calls to return.",
+                    "budget_exhausted": "Model call limit reached. Waiting for active calls to return.",
+                }[reason]}
 
     def stream_events(self) -> Iterator[dict[str, Any]]:
         index = 0
@@ -108,12 +112,12 @@ class RunRegistry:
         self._sessions: dict[str, RunSession] = {}
         self._lock = threading.Lock()
 
-    def create(self) -> RunSession:
-        session, _ = self.claim(uuid.uuid4().hex[:12])
+    def create(self, model_call_limit: int | None = None) -> RunSession:
+        session, _ = self.claim(uuid.uuid4().hex[:12], model_call_limit=model_call_limit)
         assert session is not None
         return session
 
-    def claim(self, run_id: str, *, can_start: Callable[[], bool] | None = None) -> tuple[RunSession | None, bool]:
+    def claim(self, run_id: str, *, can_start: Callable[[], bool] | None = None, model_call_limit: int | None = None) -> tuple[RunSession | None, bool]:
         with self._lock:
             if run_id in self._sessions:
                 return self._sessions[run_id], False
@@ -122,7 +126,7 @@ class RunRegistry:
             if len(self._sessions) >= self._capacity:
                 raise HTTPException(status_code=503, detail="Two research jobs are already running. Try again when one finishes.",
                                     headers={"Retry-After": "10"})
-            session = RunSession(run_id)
+            session = RunSession(run_id, model_call_limit)
             self._sessions[run_id] = session
             return session, True
 
@@ -153,7 +157,7 @@ def _load_persisted_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str
 
 
 def _recover_interrupted(workflow: MarketMindGraph, job: dict) -> dict:
-    if job.get("job_status") not in {"interrupted", "cancelled", "timed_out"} or job.get("data_snapshot"):
+    if job.get("job_status") not in {"interrupted", "cancelled", "timed_out", "budget_exhausted"} or job.get("data_snapshot"):
         return job
     if not all(job.get(key) for key in ("run_id", "ticker", "data_mode", "analysis_date", "started_at")):
         return job
@@ -222,6 +226,7 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
             session.control.check()
             for snapshot in iterator:
                 payload = snapshot.to_dict()
+                payload["model_usage"] = session.control.usage_snapshot()
                 if payload["status"] == "error":
                     _safe_run_error(payload)
                 if payload["status"] != "completed":
@@ -231,7 +236,7 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
                 if payload["status"] in {"completed", "error"}:
                     final_snapshot = payload
                     continue
-                progress = (payload["status"], payload.get("current_agent"), payload.get("data_snapshot"))
+                progress = (payload["status"], payload.get("current_agent"), payload.get("data_snapshot"), payload["model_usage"])
                 if progress != last_progress and payload["status"] in {"queued", "running"}:
                     jobs.save({**payload, "started_at": session.started_at}, request.api_key)
                     last_progress = progress
@@ -271,10 +276,15 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
         latest["finished_at"] = iso_now()
         latest["latest_update"] = "Analysis failed."
         reason = session.control.finish_reason()
+        latest["model_usage"] = session.control.usage_snapshot()
         if reason:
             _hide_final_decision(latest)
             latest.update(job_status=reason, stop_reason=reason,
-                          error="Research cancelled." if reason == "cancelled" else "Research timed out.")
+                          error={
+                              "cancelled": "Research cancelled.",
+                              "timed_out": "Research timed out.",
+                              "budget_exhausted": "Model call limit reached. No recommendation was generated.",
+                          }[reason])
             latest["latest_update"] = latest["error"]
             latest = _recover_interrupted(workflow, latest)
         _persist_snapshot(workflow, session.run_id, latest)
@@ -320,6 +330,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             store = get_jobs()
             queued = SnapshotBuilder(session.run_id, request, resolution).snapshot.model_dump(mode="json")
             queued["started_at"] = session.started_at
+            queued["model_usage"] = session.control.usage_snapshot()
             queued["data_mode"] = "demo" if request.llm_provider == "offline" else "live"
             if request.snapshot_id:
                 queued["data_snapshot"] = {"snapshot_id": request.snapshot_id}
@@ -408,7 +419,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
         )
         if resolved.status != "RESOLVED":
             raise HTTPException(status_code=422, detail=_resolution_http_detail(resolved))
-        session = runs.create()
+        session = runs.create(request.model_call_limit)
         launch(session, request, resolved)
         return RunCreatedResponse(
             run_id=session.run_id,
@@ -456,7 +467,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             previous = current_workflow.archive.load(child_id)
             return previous is None or previous.get("status") == "error"
 
-        session, claimed = runs.claim(child_id, can_start=revision_can_start)
+        session, claimed = runs.claim(child_id, can_start=revision_can_start, model_call_limit=child_request.model_call_limit)
         if claimed and session is not None:
             launch(session, child_request, resolved)
         return RunCreatedResponse(run_id=child_id, stream_url=f"/runs/{child_id}/stream",
@@ -500,7 +511,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="Run not found")
             raise HTTPException(status_code=409, detail="This research run is no longer active.")
         if not session.control.cancel():
-            raise HTTPException(status_code=409, detail="This research run has finished or is already timing out.")
+            raise HTTPException(status_code=409, detail="This research run has finished or is already stopping.")
         snapshot = session.view(session.latest_snapshot or get_jobs().get(run_id))
         return JSONResponse(snapshot or {"run_id": run_id, "job_status": "stopping"}, status_code=202)
 

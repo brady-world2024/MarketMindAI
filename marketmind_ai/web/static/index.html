@@ -161,6 +161,10 @@
             <label><input type="checkbox" value="fundamentals" checked /> Fundamentals Analyst</label>
           </fieldset>
 
+          <label>Model call limit
+            <input id="modelCallLimitInput" type="number" inputmode="numeric" min="1" step="1" placeholder="No limit" />
+            <small>Optional for this run. Failed model calls count toward the limit.</small>
+          </label>
           <label class="checkbox-label"><input id="checkpointInput" type="checkbox" /><span>Save workflow checkpoints</span></label>
             </div>
           </details>
@@ -197,6 +201,7 @@
           </div>
           <div class="run-status-line"><strong id="runPhase" role="status">Ready when you are</strong><span id="elapsedTime">Elapsed —</span></div>
           <p id="phaseDetail">Start a research run or open a saved report.</p>
+          <p id="modelUsage" hidden></p>
           <ol class="phase-steps" id="phaseSteps" aria-label="Research phases"></ol>
           <p id="streamStatus" role="status" aria-live="polite">No active stream</p>
           <div id="cancelRunControls" hidden>

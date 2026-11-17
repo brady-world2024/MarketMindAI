@@ -39,6 +39,7 @@ class AnalysisRequest(BaseModel):
     analysts: list[str] = Field(default_factory=lambda: list(ANALYST_KEYS))
     output_language: str = "English"
     research_depth: int = Field(default=1, ge=1, le=5)
+    model_call_limit: int | None = Field(default=None, ge=1, le=2**53 - 1, strict=True)
     base_url: Optional[str] = None
     google_thinking_level: Optional[str] = None
     openai_reasoning_effort: Optional[str] = None
@@ -209,6 +210,7 @@ class RunSnapshot(BaseModel):
     instrument_eligibility: Optional[dict] = None
     source_attempts: list[dict] = Field(default_factory=list)
     source_materials: list[dict] = Field(default_factory=list)
+    model_usage: Optional[dict] = None
     status: Literal["queued", "running", "completed", "error"]
     original_input: str
     ticker: str

@@ -95,6 +95,20 @@ export type FinancialClaimCheck = {
   inputs?: { label: string; line: number; column: number; period_end: string; raw_value: string; value: string }[];
 };
 
+export type ModelUsage = {
+  model_call_limit: number | null;
+  calls_started: number;
+  calls_completed: number;
+  calls_failed: number;
+  calls_with_reported_tokens: number;
+  calls_with_reported_total_tokens: number;
+  possibly_incomplete?: boolean;
+  reported_input_tokens: number | null;
+  reported_output_tokens: number | null;
+  reported_total_tokens: number | null;
+  model_elapsed_ms: number;
+};
+
 export type RunSnapshot = {
   research_cutoff?: { requested_date?: string; effective_session_date?: string; cutoff_at?: string;
     cutoff_at_local?: string; market_timezone?: string; calendar_id?: string; calendar_version?: string } | null;
@@ -116,8 +130,9 @@ export type RunSnapshot = {
   source_materials?: {method: string; provider: string; retrieved_at?: string; content: unknown; source_url?: string | null}[];
   run_id: string;
   status: "queued" | "running" | "completed" | "error";
-  job_status?: "interrupted" | "stopping" | "cancelled" | "timed_out";
-  stop_reason?: "cancelled" | "timed_out";
+  model_usage?: ModelUsage | null;
+  job_status?: "interrupted" | "stopping" | "cancelled" | "timed_out" | "budget_exhausted";
+  stop_reason?: "cancelled" | "timed_out" | "budget_exhausted";
   last_job_status?: "queued" | "running";
   original_input: string;
   ticker: string;

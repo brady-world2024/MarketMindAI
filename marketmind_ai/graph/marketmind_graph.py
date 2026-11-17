@@ -11,7 +11,7 @@ import json
 
 from ..agents.utils.memory_retrieval import MarketMindMemoryRetriever
 from ..config import AppPaths, DEFAULT_ANALYSTS
-from ..run_control import RunStopped, check_running, seal_run
+from ..run_control import RunStopped, active_run_control, check_running, seal_run
 from ..dataflows.config import DataflowAudit, dataflow_context, get_audit
 from ..dataflows.preflight import run_preflight
 from ..dataflows.research_cutoff import ResearchCutoff, resolve_research_cutoff
@@ -91,6 +91,8 @@ class MarketMindGraph:
                     try:
                         check_running()
                         snapshot = next(iterator)
+                        if control := active_run_control():
+                            snapshot.model_usage = control.usage_snapshot()
                     except StopIteration:
                         return
                 yield snapshot
@@ -165,6 +167,8 @@ class MarketMindGraph:
             for agent in snapshot.agents:
                 agent.status = 'skipped'
             seal_run()
+            if control := active_run_control():
+                snapshot.model_usage = control.usage_snapshot()
             draft = self.reviews.save_draft(snapshot.to_dict(), request, {})
             snapshot.review = draft['review']
             self.archive.save(snapshot)
@@ -248,6 +252,8 @@ class MarketMindGraph:
         snapshot.latest_update = "Research complete."
         self._attach_sources(snapshot, availability)
         seal_run()
+        if control := active_run_control():
+            snapshot.model_usage = control.usage_snapshot()
         draft = self.reviews.save_draft(snapshot.to_dict(), request, self.projector.state_log_payload(current_state))
         snapshot.review = draft["review"]
         self.archive.save(snapshot)

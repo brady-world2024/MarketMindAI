@@ -31,6 +31,18 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
       aria-current={index === phase.index && !reviewComplete ? "step" : undefined}><span aria-hidden="true">{index < phase.index || reviewComplete && index === 4 ? "✓" : index + 1}</span>{label}</li>)}</ol>}
     <p className="summaryLine" role="status">{snapshot?.latest_update ?? (running ? "Checking input and starting the workflow…" : "Choose a company and start a research run.")}</p>
     {snapshot?.provider === "offline" && <p className="offlineNotice">Offline demo · Uses sample data and local rules. No paid model calls.</p>}
+    {snapshot?.model_usage && <div className="summaryLine" aria-label="Model usage">
+      <p>Model calls {snapshot.model_usage.calls_started}{snapshot.model_usage.model_call_limit !== null
+        ? ` / ${snapshot.model_usage.model_call_limit}` : " · no limit"}
+        {snapshot.model_usage.calls_failed > 0 && ` · ${snapshot.model_usage.calls_failed} failed`}</p>
+      <p>Provider-reported tokens {snapshot.model_usage.reported_total_tokens ?? "Not reported"}
+        {snapshot.model_usage.reported_total_tokens !== null &&
+          ` · ${snapshot.model_usage.calls_with_reported_total_tokens} of ${snapshot.model_usage.calls_started} calls reported a total`}</p>
+      {(snapshot.model_usage.reported_input_tokens != null || snapshot.model_usage.reported_output_tokens != null) &&
+        <p>Reported input {snapshot.model_usage.reported_input_tokens ?? "—"} · Reported output {snapshot.model_usage.reported_output_tokens ?? "—"}</p>}
+      {snapshot.model_usage.possibly_incomplete && <p>Last recorded usage before interruption. Some calls may be missing.</p>}
+      <p>Combined model call time {(snapshot.model_usage.model_elapsed_ms / 1000).toFixed(1)}s</p>
+    </div>}
     {running && onCancel && (
       <div className="connectionNotice">
         <button className="secondaryButton" type="button" onClick={onCancel}

@@ -89,7 +89,7 @@ def test_expiry_is_visible_while_active_and_persists_terminal_status(tmp_path, m
 
     clock = [0.0]
     workers = []
-    monkeypatch.setattr("marketmind_ai.web.app.RunControl", lambda: RunControl(timeout_seconds=900, clock=lambda: clock[0]))
+    monkeypatch.setattr("marketmind_ai.web.app.RunControl", lambda **kwargs: RunControl(timeout_seconds=900, clock=lambda: clock[0], **kwargs))
 
     class HeldThread:
         def __init__(self, target, args, **kwargs):
