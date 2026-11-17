@@ -19,7 +19,8 @@ def test_queued_job_is_visible_after_restart_without_credentials(tmp_path, monke
 
     monkeypatch.setattr("marketmind_ai.web.app.AnalysisThread", HeldWorker)
     first = TestClient(create_app(str(tmp_path)))
-    response = first.post("/api/runs", json={**DEMO, "api_key": "must-not-be-persisted"})
+    response = first.post("/api/runs", json={**DEMO, "api_key": "must-not-be-persisted",
+        "research_objective": "company_overview", "research_horizon": "1_to_4_weeks"})
     assert response.status_code == 200
     run_id = response.json()["run_id"]
     assert first.get(f"/api/runs/{run_id}").json()["status"] == "queued"
@@ -28,6 +29,8 @@ def test_queued_job_is_visible_after_restart_without_credentials(tmp_path, monke
     assert result.status_code == 200
     assert result.json()["status"] == "error"
     assert result.json()["job_status"] == "interrupted"
+    assert result.json()["research_objective"] == "company_overview"
+    assert result.json()["research_horizon"] == "1_to_4_weeks"
     assert restarted.get("/api/jobs?status=interrupted").json()[0]["run_id"] == run_id
     sse = restarted.get(f"/api/runs/{run_id}/stream").text
     assert "event: complete" in sse and "interrupted" in sse

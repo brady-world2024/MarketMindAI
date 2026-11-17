@@ -108,6 +108,8 @@ class RunSnapshot:
     review: Optional[dict] = None
     error: Optional[str] = None
     model_usage: Optional[dict] = None
+    research_objective: Optional[str] = None
+    research_horizon: Optional[str] = None
 
     @classmethod
     def create(
@@ -151,6 +153,8 @@ class RunSnapshot:
             quick_model=request.quick_model,
             deep_model=request.deep_model,
             output_language=request.output_language,
+            research_objective=request.research_objective,
+            research_horizon=request.research_horizon,
             selected_analysts=selected,
             started_at=utc_now(),
             latest_update=resolution.reason or "Ready to begin.",

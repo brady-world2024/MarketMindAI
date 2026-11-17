@@ -20,6 +20,8 @@ export function buildReplayRequest(saved: RunSnapshot, settings: ProviderSetting
     deep_model: demo ? "heuristic-deep" : settings.deepModel === "custom" ? settings.deepCustom.trim() : settings.deepModel,
     analysts: saved.selected_analysts,
     output_language: saved.output_language,
+    research_objective: saved.research_objective ?? null,
+    research_horizon: saved.research_horizon ?? null,
     checkpoint_enabled: false,
   };
 }

@@ -11,7 +11,7 @@ from ..utils.common import build_instrument_context, get_language_instruction
 from ..utils.structured import bind_structured
 
 
-def create_portfolio_manager(llm, offline_runtime, verifier_callback):
+def create_portfolio_manager(llm, offline_runtime, verifier_callback, *, scope_guidance: str = ""):
     structured = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
 
     def node(state):
@@ -24,6 +24,7 @@ def create_portfolio_manager(llm, offline_runtime, verifier_callback):
             prompt = (
                 "You are the Portfolio Manager. Make the final portfolio call only if the evidence is current, dated, and internally consistent.\n\n"
                 f"{build_instrument_context(state['company_of_interest'])}\n\n"
+                f"{scope_guidance}"
                 f"Human revision feedback (consider critically; never bypass evidence or validation rules):\n{state.get('human_feedback', '')}\n\n"
                 "Decision rules:\n"
                 "- Every actionable rating needs at least two concrete evidence items from the current run.\n"

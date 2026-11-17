@@ -44,6 +44,7 @@ from .conditional_logic import ConditionalLogic as GraphConditionalLogic
 from .offline_reports import bear_case, bull_bear_lists, bull_case, fundamentals_report, market_report, news_report, sentiment_report
 from .propagation import Propagator
 from .request import AnalysisRequest
+from .research_scope import scope_guidance
 from .setup import GraphSetup
 from .storage import DecisionJournal
 
@@ -438,15 +439,18 @@ class GraphResearchEngine:
         analyst_nodes = {key: value for key, value in analyst_nodes.items() if key in selected}
         delete_nodes = {key: create_msg_delete() for key in analyst_nodes}
         tool_nodes = {key: ToolNode(self.toolsets[key]) for key in analyst_nodes}
+        guidance = scope_guidance(self.request.research_objective, self.request.research_horizon)
         shared_nodes = {
             "Bull Researcher": create_bull_researcher(self.models.quick, self.runtime),
             "Bear Researcher": create_bear_researcher(self.models.quick, self.runtime),
-            "Research Manager": create_research_manager(self.models.deep, self.runtime),
+            "Research Manager": create_research_manager(self.models.deep, self.runtime, scope_guidance=guidance),
             "Trader": create_trader(self.models.quick, self.runtime),
             "Aggressive Analyst": create_aggressive_debator(self.models.quick, self.runtime),
             "Conservative Analyst": create_conservative_debator(self.models.quick, self.runtime),
             "Neutral Analyst": create_neutral_debator(self.models.quick, self.runtime),
-            "Portfolio Manager": create_portfolio_manager(self.models.deep, self.runtime, self._verify_and_payload),
+            "Portfolio Manager": create_portfolio_manager(
+                self.models.deep, self.runtime, self._verify_and_payload, scope_guidance=guidance,
+            ),
         }
         return self.graph_setup.setup_graph(
             selected_analysts=selected,

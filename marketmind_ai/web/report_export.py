@@ -5,6 +5,8 @@ import json
 from typing import Any
 from urllib.parse import quote
 
+from ..graph.research_scope import HORIZON_LABELS, OBJECTIVE_LABELS
+
 
 def _meta_row(label: str, value: Any) -> str:
     text = escape(str(value or "—"))
@@ -253,6 +255,13 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
             _meta_row("Run ID", snapshot.get("run_id")),
         ]
     )
+
+    objective = OBJECTIVE_LABELS.get(snapshot.get("research_objective"))
+    horizon = HORIZON_LABELS.get(snapshot.get("research_horizon"))
+    if objective:
+        metadata += _meta_row("Research objective", objective)
+    if horizon:
+        metadata += _meta_row("Requested horizon", horizon)
 
     model_usage = snapshot.get("model_usage")
     if model_usage:

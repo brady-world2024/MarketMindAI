@@ -7,6 +7,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..config import DEFAULT_ANALYSTS, normalize_analyst_key, provider_catalog
+from ..graph.research_scope import ResearchHorizon, ResearchObjective
 from ..symbols import SymbolCandidate, SymbolResolution
 
 
@@ -40,6 +41,8 @@ class AnalysisRequest(BaseModel):
     output_language: str = "English"
     research_depth: int = Field(default=1, ge=1, le=5)
     model_call_limit: int | None = Field(default=None, ge=1, le=2**53 - 1, strict=True)
+    research_objective: ResearchObjective | None = None
+    research_horizon: ResearchHorizon | None = None
     base_url: Optional[str] = None
     google_thinking_level: Optional[str] = None
     openai_reasoning_effort: Optional[str] = None
@@ -202,6 +205,8 @@ class ReportSectionView(BaseModel):
 
 class RunSnapshot(BaseModel):
     run_id: str
+    research_objective: ResearchObjective | None = None
+    research_horizon: ResearchHorizon | None = None
     data_mode: Literal["live", "demo", "unknown"] = "unknown"
     research_cutoff: Optional[dict] = None
     data_snapshot: Optional[dict] = None

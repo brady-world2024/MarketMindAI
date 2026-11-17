@@ -13,6 +13,7 @@ _FIELDS = (
     "run_id", "status", "ticker", "original_input", "analysis_date", "provider", "quick_model",
     "deep_model", "output_language", "selected_analysts", "data_mode", "started_at",
     "current_agent", "research_cutoff", "data_snapshot", "model_usage",
+    "research_objective", "research_horizon",
 )
 
 

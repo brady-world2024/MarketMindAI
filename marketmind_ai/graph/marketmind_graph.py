@@ -212,6 +212,8 @@ class MarketMindGraph:
                 source_identity = json.dumps({key: runtime_config.get(key) for key in
                     ('data_mode', 'data_vendors', 'tool_vendors')}, sort_keys=True)
                 source_identity += audit.frozen_inputs.manifest_sha256
+                if request.research_objective is not None or request.research_horizon is not None:
+                    source_identity += json.dumps((request.research_objective, request.research_horizon))
                 checkpoint_namespace = f"{run_id}:{hashlib.sha256(source_identity.encode()).hexdigest()}"
                 with get_checkpointer(self.paths.root, ticker) as saver:
                     graph = workflow.compile(checkpointer=saver)

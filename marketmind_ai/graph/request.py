@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import re
 
 from ..config import DEFAULT_ANALYSTS, SUPPORTED_ANALYSTS, normalize_analyst_key
+from .research_scope import HORIZON_LABELS, OBJECTIVE_LABELS, ResearchHorizon, ResearchObjective
 
 
 @dataclass
@@ -28,6 +29,14 @@ class AnalysisRequest:
     human_feedback: str = ""
     snapshot_id: str | None = None
     model_call_limit: int | None = None
+    research_objective: ResearchObjective | None = None
+    research_horizon: ResearchHorizon | None = None
+
+    def __post_init__(self) -> None:
+        for name, choices in (("research_objective", OBJECTIVE_LABELS), ("research_horizon", HORIZON_LABELS)):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or value not in choices):
+                raise ValueError(f"{name} must be one of: {', '.join(choices)}")
 
     @classmethod
     def from_mapping(cls, payload: Dict[str, Any]) -> "AnalysisRequest":
@@ -87,4 +96,6 @@ class AnalysisRequest:
             human_feedback=str(payload.get("human_feedback") or "").strip(),
             snapshot_id=snapshot_id,
             model_call_limit=model_call_limit,
+            research_objective=payload.get("research_objective"),
+            research_horizon=payload.get("research_horizon"),
         )

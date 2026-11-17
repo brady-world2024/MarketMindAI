@@ -72,6 +72,8 @@ class SnapshotBuilder:
             deep_model=request.deep_model,
             output_language=request.output_language,
             selected_analysts=request.analysts,
+            research_objective=request.research_objective,
+            research_horizon=request.research_horizon,
             started_at=iso_now(),
             current_agent=None,
             latest_update=resolution.reason or "Ready to start analysis.",

@@ -28,6 +28,7 @@ import { WorkbenchIcon } from "./workbench-icon";
 import { researchPhase } from "../lib/research-view";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { buildReplayRequest } from "../lib/snapshot-replay";
+import { RESEARCH_HORIZONS, RESEARCH_OBJECTIVES, researchScopeFacts, type ResearchHorizon, type ResearchObjective } from "../lib/research-scope";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
@@ -283,6 +284,9 @@ function buildPrintableReport(snapshot: RunSnapshot): string {
           <span class="label">Language</span>
           <span class="value">${escapeHtml(snapshot.output_language)}</span>
         </div>
+        ${researchScopeFacts(snapshot).map(({ label, value }) => `<div class="meta-row">
+          <span class="label">${label}</span><span class="value">${escapeHtml(value)}</span>
+        </div>`).join("")}
         <div class="meta-row">
           <span class="label">Quick Model</span>
           <span class="value">${escapeHtml(snapshot.quick_model)}</span>
@@ -330,6 +334,8 @@ export function ResearchWorkbench() {
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [streamState, setStreamState] = useState<StreamState>("idle");
   const [researchDepth, setResearchDepth] = useState(1);
+  const [researchObjective, setResearchObjective] = useState<ResearchObjective | "">("");
+  const [researchHorizon, setResearchHorizon] = useState<ResearchHorizon | "">("");
   const [modelCallLimit, setModelCallLimit] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -681,6 +687,8 @@ export function ResearchWorkbench() {
           deep_model: resolvedDeepModel,
           analysts,
           output_language: resolvedLanguage,
+          research_objective: researchObjective || null,
+          research_horizon: researchHorizon || null,
           base_url: baseUrl.trim() || null,
           checkpoint_enabled: checkpointEnabled,
           research_depth: researchDepth,
@@ -816,6 +824,20 @@ export function ResearchWorkbench() {
                   {LANGUAGE_OPTIONS.map((item) => <option key={item}>{item}</option>)}<option value="custom">Custom</option></select></label></div>
               {languageNeedsCustom && <label className="field"><span>Custom language</span><input value={customLanguage} required
                 placeholder="For example: Turkish" onChange={(event) => setCustomLanguage(event.target.value)} /></label>}
+              <div className="setupPair">
+                <label className="field"><span>Research objective</span>
+                  <select value={researchObjective} onChange={(event) => setResearchObjective(event.target.value as ResearchObjective | "")}>
+                    <option value="">No preference</option>
+                    {Object.entries(RESEARCH_OBJECTIVES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="field"><span>Research horizon</span>
+                  <select value={researchHorizon} onChange={(event) => setResearchHorizon(event.target.value as ResearchHorizon | "")}>
+                    <option value="">No preference</option>
+                    {Object.entries(RESEARCH_HORIZONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+              </div>
               <div className="providerSection"><div className="providerHeading"><span className="sectionKicker">Model connection</span>
                 <span className={`connectionState ${offline || validationResult?.valid ? "verified" : ""}`}>
                   <span className="statusDot" />{offline ? "Demo mode" : validationResult?.valid ? "Verified" : "Not verified"}</span></div>

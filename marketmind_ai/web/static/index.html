@@ -70,6 +70,24 @@
 
           <div class="setup-divider"></div>
           <label>
+            <span>Research objective</span>
+            <select id="researchObjectiveSelect">
+              <option value="">No preference</option>
+              <option value="company_overview">Company overview</option>
+              <option value="earnings">Earnings and financial results</option>
+              <option value="risk_counterevidence">Risks and counterevidence</option>
+            </select>
+          </label>
+          <label>
+            <span>Research horizon</span>
+            <select id="researchHorizonSelect">
+              <option value="">No preference</option>
+              <option value="1_to_4_weeks">1–4 weeks</option>
+              <option value="1_to_3_months">1–3 months</option>
+              <option value="6_to_12_months">6–12 months</option>
+            </select>
+          </label>
+          <label>
             <span>Model provider</span>
             <select id="providerSelect"></select>
           </label>
@@ -201,6 +219,7 @@
           </div>
           <div class="run-status-line"><strong id="runPhase" role="status">Ready when you are</strong><span id="elapsedTime">Elapsed —</span></div>
           <p id="phaseDetail">Start a research run or open a saved report.</p>
+          <p id="researchScope" class="summary-line" hidden></p>
           <section class="preflight-card" id="dataPreflight" aria-labelledby="preflightTitle" hidden>
             <div class="preflight-heading"><h3 id="preflightTitle">Data preflight</h3><strong id="preflightStatus" role="status"></strong></div>
             <div id="preflightDetails"></div>
