@@ -8,21 +8,22 @@ const ts = require('../frontend/node_modules/typescript');
 const preflight = require('./preflight-fixtures.cjs');
 const claimFixture = require('./claim-evidence-fixture.json');
 
-function loadModule(relative) {
+function loadModule(relative, globals = {}) {
   const filename = path.join(__dirname, '../frontend', relative);
   const source = fs.readFileSync(filename, 'utf8');
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText;
   const module = { exports: {} };
   const localRequire = createRequire(filename);
   const componentRequire = (id) => {
+    if (id === 'react' && globals.react) return globals.react;
     if (id.startsWith('.')) {
       const base = path.resolve(path.dirname(filename), id);
       const target = [base, `${base}.ts`, `${base}.tsx`].find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
-      if (target && /\.tsx?$/.test(target)) return loadModule(path.relative(path.join(__dirname, '../frontend'), target));
+      if (target && /\.tsx?$/.test(target)) return loadModule(path.relative(path.join(__dirname, '../frontend'), target), globals);
     }
     return localRequire(id);
   };
-  vm.runInNewContext(output, { module, exports: module.exports, require: componentRequire, process }, { filename });
+  vm.runInNewContext(output, { module, exports: module.exports, require: componentRequire, process, ...globals }, { filename });
   return module.exports;
 }
 
@@ -161,6 +162,94 @@ test('replay preserves saved security, date and mode while isolating demo models
   assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, validationResult: null }), /live.*connection/i);
   assert.equal(buildReplayRequest({ ...saved, data_mode: 'live' }, live).api_key, 'secret');
   assert.throws(() => buildReplayRequest({ ...saved, data_snapshot: null }, live), /snapshot.*unverified/i);
+});
+
+test('refresh creates a new data request from saved research identity and isolates demo credentials', () => {
+  const {buildRefreshRequest,buildReplayRequest} = loadModule('lib/snapshot-replay.ts');
+  const saved = {ticker:'NVDA',analysis_date:'2026-06-12',research_cutoff:{requested_date:'2026-06-13'},
+    data_mode:'demo',data_snapshot:{snapshot_id:'old'},selected_analysts:['market','news'],
+    output_language:'Chinese',research_objective:'earnings',research_horizon:'1_to_3_months'};
+  const settings = {provider:'openai',apiKey:'private-key',baseUrl:'https://custom.example',
+    quickModel:'q',deepModel:'d',validationResult:null};
+  const request = buildRefreshRequest(saved,settings);
+  assert.equal(request.ticker,'NVDA');
+  assert.equal(request.analysis_date,'2026-06-13');
+  assert.equal(request.research_objective,'earnings');
+  assert.equal(request.research_horizon,'1_to_3_months');
+  assert.equal(request.output_language,'Chinese');
+  assert.equal(request.llm_provider,'offline');
+  assert.equal(request.api_key,null);
+  assert.equal(request.base_url,null);
+  assert.ok(!Object.hasOwn(request,'snapshot_id'));
+  const live = buildRefreshRequest({...saved,data_mode:'live',data_snapshot:null},{...settings,apiKey:''});
+  assert.equal(live.api_key,null);
+  assert.equal(live.llm_provider,'openai');
+  assert.throws(()=>buildReplayRequest({...saved,data_mode:'live'},settings),/verified live/i);
+  assert.throws(()=>buildRefreshRequest({...saved,data_mode:'live'},{...settings,provider:'offline'}),/live/i);
+  assert.throws(()=>buildRefreshRequest({...saved,data_mode:'unknown'},settings),/mode|unverified/i);
+});
+
+test('a failed refresh start keeps the saved report and permits retry', async () => {
+  const React = require('../frontend/node_modules/react');
+  const values = [];
+  let cursor = 0;
+  const useState = initial => {
+    const index = cursor++;
+    if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;
+    return [values[index], value => { values[index] = typeof value === 'function' ? value(values[index]) : value; }];
+  };
+  const saved = {...claimFixture, data_mode:'demo', final_signal:'No Recommendation'};
+  const requests = [];
+  const {ResearchWorkbench} = loadModule('components/research-workbench.tsx', {
+    react: {...React, useState, useReducer: (reducer, initial) => {
+      const [value, setValue] = useState(initial);
+      return [value, action => setValue(current => reducer(current, action))];
+    }, useRef: initial => useState(() => ({current:initial}))[0], useEffect() {},
+    useMemo: calculate => calculate(), useDeferredValue: value => value},
+    window: {localStorage:{setItem(){}}},
+    fetch(url, options) {
+      if (options?.method === 'POST') return new Promise(resolve => requests.push({url,options,resolve}));
+      return Promise.resolve({ok:true,json:async () => saved});
+    },
+  });
+  const render = () => { cursor = 0; return ResearchWorkbench(); };
+  const find = (tree, name) => {
+    if (!tree || typeof tree !== 'object') return undefined;
+    if (Array.isArray(tree)) return tree.map(child => find(child,name)).find(Boolean);
+    return tree.type?.name === name ? tree : find(tree.props?.children,name);
+  };
+  await find(render(),'ReportHistory').props.onOpenRun(saved.run_id);
+  find(render(),'ResearchReport').props.onRefresh();
+  assert.equal(requests.length,1);
+  assert.ok(!Object.hasOwn(JSON.parse(requests[0].options.body),'snapshot_id'));
+  requests[0].resolve({ok:false,text:async () => JSON.stringify({detail:'Unable to start research. Try again.'})});
+  await new Promise(resolve => setImmediate(resolve));
+  const report = find(render(),'ResearchReport');
+  assert.ok(report,'the original report remains available after a failed start');
+  assert.equal(report.props.snapshot.run_id,saved.run_id);
+  assert.equal(report.props.replayBusy,false);
+  report.props.onRefresh();
+  assert.equal(requests.length,2);
+  requests[1].resolve({ok:false,text:async () => JSON.stringify({detail:'Unable to start research. Try again.'})});
+  await new Promise(resolve => setImmediate(resolve));
+});
+
+test('no-recommendation recovery distinguishes missing data from recorded validation limits', () => {
+  const React = require('../frontend/node_modules/react');
+  const {renderToStaticMarkup} = require('../frontend/node_modules/react-dom/server');
+  const {ResearchRecovery} = loadModule('components/research-recovery.tsx');
+  const render = snapshot => renderToStaticMarkup(React.createElement(ResearchRecovery,
+    {snapshot,onRefresh(){},busy:false}));
+  const blocked = {...preflight.blocked,ticker:'ABC',analysis_date:'2026-06-12',final_signal:'No Recommendation'};
+  const html = render(blocked);
+  assert.match(html,/Cash flow statement/);
+  assert.match(html,/Refresh data and rerun/);
+  assert.match(html,/required research data/i);
+  const limited = render({...blocked,data_availability:{can_recommend:true},
+    report_verification:{blocks_actionable_recommendation:true}});
+  assert.match(limited,/Recorded validation prevents an actionable recommendation/);
+  assert.doesNotMatch(limited,/Required research data was unavailable/);
+  assert.doesNotMatch(render({...blocked,data_mode:'unknown'}),/>Refresh data and rerun</);
 });
 
 test('saved-data replay is available on complete and partial report source panels', () => {

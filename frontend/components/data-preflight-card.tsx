@@ -1,15 +1,5 @@
 import type { RunSnapshot } from "../lib/api-types";
-
-const requirements = {
-  instrument: "Security eligibility",
-  price_history: "Daily price history",
-  income_statement: "Income statement",
-  balance_sheet: "Balance sheet",
-  cashflow: "Cash flow statement",
-  news: "Company news",
-  global_news: "Market news",
-  fundamentals: "Company overview",
-};
+import { DATA_REQUIREMENTS as requirements } from "../lib/research-recovery";
 const requiredKeys = ["instrument", "price_history", "income_statement", "balance_sheet", "cashflow"];
 
 const reasons: Record<string, string> = {

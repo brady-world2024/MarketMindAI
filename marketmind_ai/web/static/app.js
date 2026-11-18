@@ -83,6 +83,33 @@ function currentPayload() {
   };
 }
 
+function buildRefreshPayload(saved) {
+  if (!["demo", "live"].includes(saved.data_mode)) throw new Error("The saved source mode is unverified. Start a new research run from setup.");
+  const date = saved.research_cutoff?.requested_date ?? saved.analysis_date;
+  if (!saved.ticker || typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new Error("The saved company or requested date is unavailable. Start a new research run from setup.");
+  }
+  const current = currentPayload();
+  const demo = saved.data_mode === "demo";
+  if (!demo && (!current.llm_provider || current.llm_provider === "offline")) {
+    throw new Error("Choose a live AI provider for this saved live research.");
+  }
+  return {
+    ...current,
+    ticker: saved.ticker,
+    analysis_date: date,
+    llm_provider: demo ? "offline" : current.llm_provider,
+    api_key: demo ? null : current.api_key || null,
+    base_url: demo ? null : current.base_url || null,
+    quick_model: demo ? "heuristic-fast" : current.quick_model,
+    deep_model: demo ? "heuristic-deep" : current.deep_model,
+    analysts: saved.selected_analysts,
+    output_language: saved.output_language,
+    research_objective: saved.research_objective ?? null,
+    research_horizon: saved.research_horizon ?? null,
+  };
+}
+
 function fillModelSelect(element, models, provider) {
   const options = [...models];
   if (provider.supports_custom_models && !options.some((option) => option.value === "custom")) {
@@ -589,6 +616,7 @@ function renderSnapshot(snapshot) {
   $("dataSourceBadge").textContent = snapshot.data_mode || "unknown";
   renderSourceAvailability(snapshot);
   renderDecisionSummary(snapshot);
+  renderResearchRecovery(snapshot);
   renderRunProgress(snapshot);
   renderToolCalls(snapshot);
   $("exportPdfBtn").disabled = snapshot.status !== "completed";
@@ -596,6 +624,30 @@ function renderSnapshot(snapshot) {
   renderFeed(snapshot);
   renderReports(snapshot);
   if (typeof renderHumanReview === "function") renderHumanReview(snapshot);
+}
+
+function renderResearchRecovery(snapshot) {
+  const noRecommendation = snapshot.final_structured_decision?.decision_status === "No Recommendation"
+    || /no.recommendation/i.test(snapshot.final_signal || "");
+  $("researchRecovery").hidden = !noRecommendation;
+  let message = "The saved report contains no recommendation. Review its evidence gap and risks before starting another analysis.";
+  if (snapshot.data_availability?.can_recommend === false) {
+    message = "Required research data was unavailable or unverified. Review the recorded source failures before fetching data again.";
+  } else if (snapshot.report_verification?.blocks_actionable_recommendation) {
+    message = "Recorded validation prevents an actionable recommendation. Review the claim checks and evidence gap before rerunning.";
+  }
+  $("missingResearchData").innerHTML = (snapshot.data_availability?.missing || []).map(key =>
+    `<li>${escapeHtml(Object.prototype.hasOwnProperty.call(preflightRequirements, key) ? preflightRequirements[key] : key.replaceAll("_", " "))}</li>`).join("");
+  const date = snapshot.research_cutoff?.requested_date ?? snapshot.analysis_date;
+  const canRefresh = ["completed", "error"].includes(snapshot.status)
+    && ["demo", "live"].includes(snapshot.data_mode) && !!snapshot.ticker?.trim()
+    && typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  $("savedDataActions").hidden = !canRefresh;
+  $("recoveryExplanation").textContent = message
+    + (canRefresh ? "" : " Start a new research run from setup to choose the company and date.");
+  $("refreshDataBtn").disabled = !!state.reviewBusy || !!state.startingRun || ["queued", "running"].includes(snapshot.status);
+  $("refreshDataExplanation").textContent = `Fetch sources again for ${snapshot.ticker}, requested ${date}. This creates a new report and data snapshot.`
+    + (snapshot.data_mode === "demo" ? " Demo refresh uses offline models." : " Uses your current live AI settings and this run’s budget.");
 }
 
 function renderSourceAvailability(snapshot) {
@@ -766,16 +818,18 @@ function connectRunStream(runId) {
   });
 }
 
-async function startRun() {
+async function startRun(saved = null) {
   if (state.reviewBusy || state.startingRun || ["queued", "running"].includes(state.snapshot?.status)) return;
   state.startingRun = true;
   $("runError").hidden = true;
   $("startRunBtn").disabled = true;
   $("offlineDemoBtn").disabled = true;
+  $("refreshDataBtn").disabled = true;
+  if (typeof updateReviewControls === "function") updateReviewControls();
   const generation = ++state.loadGeneration;
   closeEventSource();
   try {
-    const payload = currentPayload();
+    const payload = saved ? buildRefreshPayload(saved) : currentPayload();
     if (payload.model_call_limit !== null && (!Number.isSafeInteger(payload.model_call_limit) || payload.model_call_limit < 1)) {
       throw new Error("Enter a positive whole number for the model call limit.");
     }
@@ -800,6 +854,7 @@ async function startRun() {
       message: "Symbol validated and run created.",
     });
     renderSnapshot({ run_id: response.run_id, ticker: payload.ticker, analysis_date: payload.analysis_date,
+      data_mode: payload.llm_provider === "offline" ? "demo" : "live",
       research_objective: payload.research_objective, research_horizon: payload.research_horizon,
       status: "queued", provider: payload.llm_provider, started_at: new Date().toISOString(),
       latest_update: "Preparing research.", reports: [], agents: [], messages: [], tool_calls: [] });
@@ -817,6 +872,8 @@ async function startRun() {
     const running = ["queued", "running"].includes(state.snapshot?.status);
     $("startRunBtn").disabled = !!state.reviewBusy || running;
     $("offlineDemoBtn").disabled = !!state.reviewBusy || running;
+    $("refreshDataBtn").disabled = !!state.reviewBusy || running;
+    if (typeof updateReviewControls === "function") updateReviewControls();
   }
 }
 
@@ -896,6 +953,7 @@ function bindEvents() {
   $("startRunBtn").addEventListener("click", () => {
     void startRun();
   });
+  $("refreshDataBtn").addEventListener("click", () => { if (state.snapshot) void startRun(state.snapshot); });
   $("cancelRunBtn").addEventListener("click", () => { void cancelRun(); });
   $("refreshResultBtn").addEventListener("click", () => {
     void refreshRun();

@@ -44,6 +44,32 @@ test('static review shows quotations, saved context and reproducible financial i
   assert.doesNotMatch(html, /<script>/);
 });
 
+test('saving a human review disables data refresh until the write finishes', () => {
+  const { context, state, elements } = controller();
+  state.snapshot = { status: 'completed' };
+  state.reviewBusy = true;
+  context.updateReviewControls();
+  assert.equal(elements.get('refreshDataBtn').disabled, true);
+  state.reviewBusy = false;
+  context.updateReviewControls();
+  assert.equal(elements.get('refreshDataBtn').disabled, false);
+});
+
+test('a pending research start prevents report switches, reviews and revision launches', async () => {
+  const { context, state, elements } = controller();
+  state.snapshot = {run_id:'original',status:'completed',provider:'offline',review:{status:'changes_requested',version:1,report_hash:'old'}};
+  state.startingRun = true;
+  const paths = [];
+  context.getJson = async path => { paths.push(path); return {}; };
+  context.updateReviewControls();
+  assert.equal(elements.get('reviseReportBtn').disabled,true);
+  assert.equal(elements.get('reviewForm').disabled,true);
+  await context.openReviewedRun('another');
+  await context.generateRevision();
+  await context.submitHumanReview('approve');
+  assert.deepEqual(paths,[]);
+});
+
 test('switching revisions discards the previous comparison response and allows retry', async () => {
   const {context,requests,elements} = controller();
   const report = id => ({run_id:id,status:'completed',review:{

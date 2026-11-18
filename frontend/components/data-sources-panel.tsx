@@ -1,4 +1,5 @@
 import type { RunSnapshot } from "../lib/api-types";
+import { RefreshResearchAction } from "./research-recovery";
 
 export function SnapshotProvenance({ snapshot, apiBaseUrl = "" }: { snapshot: RunSnapshot; apiBaseUrl?: string }) {
   const cutoff = snapshot.research_cutoff;
@@ -33,13 +34,14 @@ export function SnapshotProvenance({ snapshot, apiBaseUrl = "" }: { snapshot: Ru
   </div>;
 }
 
-export function DataSourcesPanel({ snapshot, apiBaseUrl, onReplay, replayBusy }: {
-  snapshot: RunSnapshot; apiBaseUrl?: string; onReplay?: () => void; replayBusy?: boolean;
+export function DataSourcesPanel({ snapshot, apiBaseUrl, onReplay, onRefresh, replayBusy }: {
+  snapshot: RunSnapshot; apiBaseUrl?: string; onReplay?: () => void; onRefresh?: () => void; replayBusy?: boolean;
 }) {
   const data = snapshot.data_availability;
   const mode = snapshot.data_mode ?? "unknown";
   return <div className="sourcePanel" id="research-data-sources" tabIndex={-1}>
     <SnapshotProvenance snapshot={snapshot} apiBaseUrl={apiBaseUrl} />
+    <RefreshResearchAction snapshot={snapshot} onRefresh={onRefresh} busy={replayBusy} />
     {snapshot.data_snapshot?.snapshot_id && onReplay && <div className="reportExtra">
       <button type="button" className="secondaryButton" disabled={replayBusy} onClick={onReplay}>Replay saved data</button>
       <p className="summaryLine">Run research again with the same saved evidence inputs. Model output may differ.

@@ -243,7 +243,7 @@
           <div class="panel-heading">
             <h2>Research decision</h2>
             <div class="header-actions">
-              <button class="ghost" id="refreshResultBtn" type="button">Refresh snapshot</button>
+              <button class="ghost" id="refreshResultBtn" type="button">Reload report</button>
               <button class="ghost" id="exportPdfBtn" type="button" disabled>Export PDF</button>
             </div>
           </div>
@@ -251,6 +251,16 @@
             <span class="decision-label" id="decisionLabel">Decision draft</span>
             <strong id="finalSignal">Pending</strong>
             <p id="finalSummary">No completed run yet.</p>
+            <section id="researchRecovery" class="research-recovery" aria-labelledby="recoveryTitle" hidden>
+              <h3 id="recoveryTitle">Why no recommendation</h3>
+              <p id="recoveryExplanation"></p>
+              <ul id="missingResearchData"></ul>
+              <a href="#sourceAvailability">Review saved sources</a>
+            </section>
+            <div id="savedDataActions" hidden>
+              <button class="ghost" id="refreshDataBtn" type="button">Refresh data and rerun</button>
+              <p id="refreshDataExplanation" class="muted"></p>
+            </div>
             <div id="decisionDetails"></div>
           </div>
           <section id="sourceAvailability" aria-label="Data availability" tabindex="-1"></section>
