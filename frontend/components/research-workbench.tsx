@@ -27,7 +27,7 @@ import { ReportHistory } from "./report-history";
 import { WorkbenchIcon } from "./workbench-icon";
 import { researchPhase } from "../lib/research-view";
 import { DataSourcesPanel } from "./data-sources-panel";
-import { buildReplayRequest } from "../lib/snapshot-replay";
+import { buildReplayRequest, buildRefreshRequest } from "../lib/snapshot-replay";
 import { RESEARCH_HORIZONS, RESEARCH_OBJECTIVES, researchScopeFacts, type ResearchHorizon, type ResearchObjective } from "../lib/research-scope";
 
 const API_BASE_URL =
@@ -623,7 +623,7 @@ export function ResearchWorkbench() {
     connectToStream(run);
   }
 
-  async function startRun(saved?: RunSnapshot) {
+  async function startRun(saved?: RunSnapshot, dataAction: "replay" | "refresh" = "replay") {
     if ((!selectedProvider && !saved) || isRunning || reviewBusy) {
       return;
     }
@@ -632,10 +632,10 @@ export function ResearchWorkbench() {
       setError("Enter a positive whole number for the model call limit.");
       return;
     }
-    let replayRequest: ReturnType<typeof buildReplayRequest> | null = null;
+    let savedRequest: ReturnType<typeof buildRefreshRequest> | ReturnType<typeof buildReplayRequest> | null = null;
     if (saved) {
-      try { replayRequest = buildReplayRequest(saved, settings); }
-      catch (replayError) { setError(replayError instanceof Error ? replayError.message : "Unable to replay saved data."); return; }
+      try { savedRequest = dataAction === "refresh" ? buildRefreshRequest(saved, settings) : buildReplayRequest(saved, settings); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to start saved research."); return; }
     }
     if (!saved && analysts.length === 0) {
       setError("Select at least one analyst.");
@@ -678,7 +678,7 @@ export function ResearchWorkbench() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ ...(replayRequest ?? {
+        body: JSON.stringify({ ...(savedRequest ?? {
           ticker: resolvedTicker?.resolved_symbol ?? normalizeQuery(ticker),
           analysis_date: analysisDate,
           llm_provider: provider,
@@ -692,7 +692,9 @@ export function ResearchWorkbench() {
           base_url: baseUrl.trim() || null,
           checkpoint_enabled: checkpointEnabled,
           research_depth: researchDepth,
-        }), model_call_limit: limit }),
+        }), model_call_limit: limit,
+          ...(saved && dataAction === "refresh" ? { research_depth: researchDepth, checkpoint_enabled: checkpointEnabled } : {}),
+        }),
       });
 
       if (!response.ok) {
@@ -721,6 +723,11 @@ export function ResearchWorkbench() {
       connectToStream(run);
     } catch (runError) {
       if (generation !== loadGeneration.current) return;
+      if (saved && dataAction === "refresh") {
+        setSnapshot(saved);
+        setRunId(saved.run_id);
+        setReportUrl(reportUrl ?? `/runs/${saved.run_id}/report`);
+      }
       const nextMessage = runError instanceof Error ? runError.message : "Failed to start the run.";
       setError(nextMessage);
       setIsRunning(false);
@@ -915,9 +922,11 @@ export function ResearchWorkbench() {
             onCancel={runId ? () => void cancelResearch(runId) : undefined} cancelling={cancellingRun !== null && cancellingRun === runId}
             onReconnect={() => { if (runId) void openSavedRun(runId).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to reconnect.")); }} />}
           {hasResult && reportSnapshot && <ResearchReport snapshot={reportSnapshot} onOpenReport={openHtmlReport} onExport={exportPdfReport}
-            apiBaseUrl={API_BASE_URL} onReplay={() => void startRun(reportSnapshot)} replayBusy={isRunning || reviewBusy} />}
+            apiBaseUrl={API_BASE_URL} onReplay={() => void startRun(reportSnapshot)}
+            onRefresh={() => void startRun(reportSnapshot, "refresh")} replayBusy={isRunning || reviewBusy} />}
           {!hasResult && snapshot && <section className="panel resultPanel"><DataSourcesPanel snapshot={snapshot} apiBaseUrl={API_BASE_URL}
-            onReplay={() => void startRun(snapshot)} replayBusy={isRunning || reviewBusy} /></section>}
+            onReplay={() => void startRun(snapshot)} onRefresh={() => void startRun(snapshot, "refresh")}
+            replayBusy={isRunning || reviewBusy} /></section>}
           {hasResult && <HumanReviewPanel key={snapshot?.run_id} snapshot={snapshot} apiBaseUrl={API_BASE_URL} running={isRunning}
             onOpenRun={openSavedRun} onBusyChange={setReviewBusy} onSnapshot={(next) => setSnapshot((current) => current?.run_id === next.run_id ? next : current)} onRevision={(run) => { if (activeRunRef.current === snapshot?.run_id) startRevision(run); }} />}
           {!snapshot && !isRunning && <>

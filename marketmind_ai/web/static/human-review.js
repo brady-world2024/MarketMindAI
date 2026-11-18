@@ -54,7 +54,7 @@ async function refreshReviews() {
 }
 
 async function openReviewedRun(id) {
-  if (!id || state.reviewBusy) return;
+  if (!id || state.reviewBusy || state.startingRun) return;
   const generation = ++state.loadGeneration;
   closeEventSource();
   try {
@@ -75,7 +75,7 @@ async function openReviewedRun(id) {
 function updateReviewControls() {
   const snapshot = state.snapshot;
   const review = snapshot?.review;
-  const busy = !!state.reviewBusy;
+  const busy = !!state.reviewBusy || !!state.startingRun;
   const pending = review?.status === "pending";
   const reviewer = $("reviewerName").value.trim();
   const comment = $("reviewComment").value.trim();
@@ -87,6 +87,7 @@ function updateReviewControls() {
   const runActive = !!state.startingRun || ["queued", "running"].includes(snapshot?.status);
   $("startRunBtn").disabled = busy || runActive;
   $("offlineDemoBtn").disabled = busy || runActive;
+  $("refreshDataBtn").disabled = busy || runActive;
   renderReviewQueue();
   document.querySelectorAll("#reviewLinks button").forEach((button) => { button.disabled = busy; });
   const needsKey = snapshot && !["offline", "ollama"].includes(snapshot.provider);
@@ -156,7 +157,7 @@ function renderHumanReview(snapshot) {
 async function submitHumanReview(decision) {
   const snapshot = state.snapshot;
   const review = snapshot?.review;
-  if (!review || state.reviewBusy) return;
+  if (!review || state.reviewBusy || state.startingRun) return;
   state.reviewBusy = true;
   updateReviewControls();
   reviewError("");
@@ -174,7 +175,7 @@ async function submitHumanReview(decision) {
 async function generateRevision() {
   const snapshot = state.snapshot;
   const review = snapshot?.review;
-  if (!review || state.reviewBusy) return;
+  if (!review || state.reviewBusy || state.startingRun) return;
   const generation = ++state.loadGeneration;
   state.reviewBusy = true;
   updateReviewControls();

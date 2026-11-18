@@ -246,6 +246,11 @@ textarea { resize: vertical; line-height: 1.65; }
 .reportFacts dt { font: 9px/1.5 var(--font-data); color: var(--subtle); margin-bottom: 6px; }
 .reportFacts dd { color: #cad7e8; margin: 0; font: 10px/1.5 var(--font-data); overflow-wrap: anywhere; }
 .resultSummary { color: #dde7f3; font-size: 15px; line-height: 1.85; margin: 22px 0 14px; }
+.researchRecovery { margin-block: 16px; padding: 14px; border: 1px solid #65533a; border-radius: 6px; background: #e4c18408; }
+.researchRecovery h3 { font-size: 13px; color: var(--gold); margin-bottom: 8px; }
+.researchRecovery p, .researchRecovery li { color: var(--muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.researchRecovery a { font-size: 12px; }
+.refreshResearchAction { margin-block: 12px; }
 .supportingReasons { margin-top: 23px; }
 .supportingReasons h3 { display: flex; align-items: center; gap: 8px; color: #c9d7e8; font-size: 12px; font-weight: 600; }
 .supportingReasons h3 > svg { color: var(--accent); }

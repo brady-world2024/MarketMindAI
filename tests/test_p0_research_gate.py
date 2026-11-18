@@ -148,3 +148,32 @@ def test_model_setup_failure_retains_completed_preflight_materials(unavailable_w
     assert final['data_availability']['ai_analysis_performed'] is False
     assert final['status'] == 'error'
     assert workflow.archive.load('auth-failure')['source_materials'] == final['source_materials']
+
+
+def test_refresh_rechecks_sources_while_replay_preserves_the_failed_snapshot(unavailable_workflow, monkeypatch):
+    workflow, engine = unavailable_workflow
+    request = AnalysisRequest('ABC', '2026-06-12')
+    original = list(workflow.stream(request, run_id='before-recovery'))[-1].to_dict()
+    original_hash = original['review']['report_hash']
+    snapshot_id = original['data_snapshot']['snapshot_id']
+    source = Mock(return_value=sec_bundle())
+    monkeypatch.setattr('marketmind_ai.dataflows.research_snapshot.get_sec_statement_bundle', source)
+    monkeypatch.setitem(VENDOR_METHODS['get_global_news'], 'yfinance', lambda *a: [])
+    monkeypatch.setitem(VENDOR_METHODS['get_insider_transactions'], 'yfinance', lambda *a: None)
+    replay = list(workflow.stream(AnalysisRequest('ABC', '2026-06-12', snapshot_id=snapshot_id), run_id='replayed-failure'))[-1].to_dict()
+    assert replay['data_availability']['can_recommend'] is False
+    assert replay['data_snapshot']['snapshot_id'] == snapshot_id
+    source.assert_not_called()
+    engine.assert_not_called()
+    engine.side_effect = ValueError('Model connection unavailable')
+    snapshots = []
+    with pytest.raises(ValueError, match='AI connection could not be initialized'):
+        for item in workflow.stream(request, run_id='refreshed-inputs'):
+            snapshots.append(item.to_dict())
+    refreshed = snapshots[-1]
+    assert refreshed['data_availability']['can_recommend'] is True
+    assert refreshed['data_snapshot']['snapshot_id'] != snapshot_id
+    assert source.call_count == engine.call_count == 1
+    saved = workflow.reviews.load('before-recovery')
+    assert saved['review']['report_hash'] == original_hash
+    assert saved['data_snapshot']['snapshot_id'] == snapshot_id

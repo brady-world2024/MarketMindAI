@@ -4,18 +4,20 @@ import { WorkbenchIcon } from "./workbench-icon";
 import { DataSourcesPanel } from "./data-sources-panel";
 import { researchScopeFacts } from "../lib/research-scope";
 import { claimCheckLinks } from "../lib/claim-evidence";
+import { ResearchRecovery } from "./research-recovery";
+import { isNoRecommendation } from "../lib/research-recovery";
 
 type Props = { snapshot: RunSnapshot; onOpenReport: () => void; onExport: () => void;
-  apiBaseUrl?: string; onReplay?: () => void; replayBusy?: boolean };
+  apiBaseUrl?: string; onReplay?: () => void; onRefresh?: () => void; replayBusy?: boolean };
 const REVIEW_LABELS = { pending: "Awaiting review", approved: "Approved", rejected: "Rejected", changes_requested: "Changes requested" };
 
-export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, onReplay, replayBusy }: Props) {
+export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, onReplay, onRefresh, replayBusy }: Props) {
   const decision = snapshot.final_structured_decision;
   const evidenceIds = (snapshot.evidence_ledger ?? []).map((item) => item.evidence_id).filter((id): id is string => !!id);
   const reasons = decision?.core_claims?.length ? decision.core_claims : (snapshot.evidence_ledger ?? []).slice(0, 3)
     .filter((item) => item.claim).map((item) => ({ claim: item.claim!, evidence_ids: item.evidence_id ? [item.evidence_id] : [] }));
   const status = snapshot.review?.status;
-  const noRecommendation = decision?.decision_status === "No Recommendation" || /no.recommendation/i.test(snapshot.final_signal ?? "");
+  const noRecommendation = isNoRecommendation(snapshot);
   const signalTone = noRecommendation ? "abstain" : /sell|underweight/i.test(snapshot.final_signal ?? "") ? "negative" : /hold/i.test(snapshot.final_signal ?? "") ? "neutral" : "";
   return <section className="panel resultPanel" aria-labelledby="result-title">
     <div className="sectionHeader compact">
@@ -38,6 +40,7 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
     {decision?.executive_summary || decision?.investment_thesis
       ? <p className="resultSummary">{decision.executive_summary || decision.investment_thesis}</p>
       : <ReportText text={snapshot.final_decision ?? "No final summary is available."} evidenceIds={evidenceIds} evidencePrefix={snapshot.run_id} />}
+    <ResearchRecovery snapshot={snapshot} onRefresh={onRefresh} busy={replayBusy} />
     {decision?.investment_thesis && decision.investment_thesis !== decision.executive_summary
       && <p className="summaryLine">{decision.investment_thesis}</p>}
     {reasons.length > 0 && <div className="supportingReasons"><h3><WorkbenchIcon name="evidence" size={16} />Supporting reasons</h3><ul>
@@ -59,6 +62,7 @@ export function ResearchReport({ snapshot, onOpenReport, onExport, apiBaseUrl, o
       <p>Model-reported confidence: {decision.confidence}/100. This score is not a calibrated probability.</p>
       <p>{decision.confidence_rationale ?? "No confidence rationale was captured."}</p></details>}
     <details className="reportExtra"><summary>View original decision text</summary><pre className="rawOutput">{snapshot.final_decision}</pre></details>
-    <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay} replayBusy={replayBusy} />
+    <DataSourcesPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} onReplay={onReplay}
+      onRefresh={noRecommendation ? undefined : onRefresh} replayBusy={replayBusy} />
   </section>;
 }

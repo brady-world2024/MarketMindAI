@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from html import escape
 import json
+import re
 from typing import Any
 from urllib.parse import quote
 
@@ -299,6 +300,33 @@ def _source_sections(snapshot: dict[str, Any]) -> str:
     return result
 
 
+def _recovery_section(snapshot: dict[str, Any]) -> str:
+    recorded_decision = snapshot.get("final_structured_decision")
+    decision = recorded_decision if isinstance(recorded_decision, dict) else {}
+    statuses = (decision.get("decision_status"), snapshot.get("final_signal"))
+    if not any(str(value or "").lower().replace("_", " ") == "no recommendation" for value in statuses):
+        return ""
+    availability = snapshot.get("data_availability") or {}
+    verification = snapshot.get("report_verification") or {}
+    message = "The saved report contains no recommendation. Review its evidence gap and risks before starting another analysis."
+    if availability.get("can_recommend") is False:
+        message = "Required research data was unavailable or unverified. Review the recorded source failures before fetching data again."
+    elif verification.get("blocks_actionable_recommendation"):
+        message = "Recorded validation prevents an actionable recommendation. Review the claim checks and evidence gap before rerunning."
+    labels = {"instrument": "Security eligibility", "price_history": "Daily price history",
+              "income_statement": "Income statement", "balance_sheet": "Balance sheet", "cashflow": "Cash flow statement"}
+    missing = "".join(f'<li>{escape(labels.get(key, key.replace("_", " ")))}</li>' for key in availability.get("missing") or [])
+    date = (snapshot.get("research_cutoff") or {}).get("requested_date") or snapshot.get("analysis_date")
+    can_refresh = (snapshot.get("status") in {"completed", "error"} and snapshot.get("data_mode") in {"live", "demo"}
+                   and isinstance(snapshot.get("ticker"), str) and bool(snapshot["ticker"].strip())
+                   and isinstance(date, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", date))
+    action = ("To fetch sources again, reopen this report in the research workspace and select Refresh data and rerun."
+              if can_refresh else "Start a new research run from setup to choose the company and date.")
+    return ('<section class="report-section"><h2>Why no recommendation</h2>'
+            f'<p>{message}</p><ul>{missing}</ul>'
+            f'<p>{action}</p></section>')
+
+
 def _revision_comparison_section(comparison) -> str:
     if not comparison or comparison.get("status") == "not_applicable":
         return ""
@@ -400,6 +428,7 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False, compar
     structured_sections = "".join(
         [
             _structured_decision_section(structured_decision if isinstance(structured_decision, dict) else {}),
+            _recovery_section(snapshot),
             _revision_comparison_section(comparison),
             _claim_navigation_section(snapshot),
             _source_sections(snapshot),

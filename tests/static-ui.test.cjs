@@ -69,6 +69,49 @@ test('static research sends optional scope and shows the choices saved in each r
   assert.equal($('researchScope').hidden, true);
 });
 
+test('static refresh uses the saved company and date and never sends live credentials for a demo', () => {
+  const {context,$} = app();
+  $('tickerInput').value='OTHER';
+  $('analysisDateInput').value='2026-01-02';
+  $('apiKeyInput').value='private-key';
+  const saved = {run_id:'saved',status:'completed',ticker:'NVDA',analysis_date:'2026-06-12',
+    data_mode:'demo',selected_analysts:['market'],output_language:'Chinese',
+    research_cutoff:{requested_date:'2026-06-13'},data_snapshot:{snapshot_id:'old'},
+    research_objective:'earnings',research_horizon:'1_to_3_months',final_signal:'No Recommendation'};
+  const payload = context.buildRefreshPayload(saved);
+  assert.equal(payload.ticker,'NVDA');
+  assert.equal(payload.analysis_date,'2026-06-13');
+  assert.equal(payload.llm_provider,'offline');
+  assert.equal(payload.api_key,null);
+  assert.equal(payload.base_url,null);
+  assert.equal(payload.research_objective,'earnings');
+  assert.ok(!Object.hasOwn(payload,'snapshot_id'));
+  context.renderResearchRecovery({...saved,data_availability:{can_recommend:false,missing:['cashflow']}});
+  assert.equal($('savedDataActions').hidden,false);
+  assert.match($('missingResearchData').innerHTML,/Cash flow statement/);
+  context.renderResearchRecovery({...saved,data_mode:'unknown'});
+  assert.equal($('savedDataActions').hidden,true);
+});
+
+test('static refresh prevents duplicate submissions and re-enables retry after a failed start', async () => {
+  const {context,$,requests} = app();
+  const saved = {run_id:'saved',status:'completed',ticker:'NVDA',analysis_date:'2026-06-12',
+    data_mode:'demo',selected_analysts:['market'],output_language:'English'};
+  vm.runInContext(`state.snapshot = ${JSON.stringify(saved)}`,context);
+  const first = context.startRun(saved);
+  await context.startRun(saved);
+  assert.equal(requests.length,1);
+  assert.equal(JSON.parse(requests[0].options.body).ticker,'NVDA');
+  requests[0].reject(new Error('Source temporarily unavailable'));
+  await first;
+  assert.equal($('refreshDataBtn').disabled,false);
+  const second = context.startRun(saved);
+  assert.equal(requests.length,2);
+  requests[1].reject(new Error('Source still unavailable'));
+  await second;
+  assert.match($('runError').textContent,/Source still unavailable/);
+});
+
 test('static conclusions link to existing claim checks and valid evidence calculations', () => {
   const { context, $ } = app();
   const snapshot = require('./claim-evidence-fixture.json');

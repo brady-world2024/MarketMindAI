@@ -24,6 +24,8 @@
 .claim-check:focus, .claim-check:target { outline: 1px solid var(--accent); outline-offset: 4px; }
 .claim-check blockquote { margin-inline: 0; padding: 8px 12px; border-left: 2px solid var(--accent); overflow-wrap: anywhere; }
 .calculation-formula { font-family: monospace; }
+.research-recovery { padding: 14px; margin-block: 14px; border: 1px solid var(--line); border-radius: 6px; }
+.research-recovery p, .research-recovery li, #refreshDataExplanation { overflow-wrap: anywhere; line-height: 1.7; }
 .comparison-result { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
 .comparison-result h3, .comparison-result h4 { margin-bottom: 8px; }
 .comparison-result p { margin-block: 5px; white-space: pre-wrap; }

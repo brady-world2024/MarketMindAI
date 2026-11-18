@@ -28,6 +28,20 @@ def test_export_keeps_legacy_string_and_statement_claims_readable():
     assert "Source check</a>" not in html and "Calculation E1</a>" not in html
 
 
+def test_no_recommendation_export_explains_the_data_gap_and_refresh_action():
+    snapshot = json.loads((Path(__file__).parent / "claim-evidence-fixture.json").read_text())
+    snapshot['data_mode'] = 'live'
+    snapshot['data_availability'] = {'can_recommend':False,'ai_analysis_performed':False,'missing':['cashflow']}
+    html = render_report_html(snapshot)
+    assert 'Why no recommendation' in html
+    assert 'Cash flow statement' in html
+    assert 'Refresh data and rerun' in html
+    snapshot['data_mode'] = 'unknown'
+    html = render_report_html(snapshot)
+    assert 'from setup to choose the company and date' in html
+    assert 'select Refresh data and rerun' not in html
+
+
 class DummySignalProcessor:
     def process_signal(self, text, verification=None):
         return "Overweight"
