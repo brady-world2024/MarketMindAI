@@ -24,6 +24,14 @@
 .claim-check:focus, .claim-check:target { outline: 1px solid var(--accent); outline-offset: 4px; }
 .claim-check blockquote { margin-inline: 0; padding: 8px 12px; border-left: 2px solid var(--accent); overflow-wrap: anywhere; }
 .calculation-formula { font-family: monospace; }
+.comparison-result { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+.comparison-result h3, .comparison-result h4 { margin-bottom: 8px; }
+.comparison-result p { margin-block: 5px; white-space: pre-wrap; }
+.comparison-pair { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,12rem),1fr)); gap: 12px; }
+.comparison-pair > div { min-width: 0; padding-left: 10px; border-left: 2px solid var(--line); }
+.comparison-pair > div:last-child { border-color: var(--accent); }
+.comparison-evidence { padding-block: 10px; border-top: 1px solid var(--line); }
+.comparison-evidence blockquote { margin-inline: 0; padding-left: 10px; border-left: 2px solid var(--line); }
 .human-review summary { font-weight: 700; cursor: pointer; }
 .human-review [hidden] { display: none !important; }
 .review-queue { display: flex; align-items: flex-end; gap: 10px; }

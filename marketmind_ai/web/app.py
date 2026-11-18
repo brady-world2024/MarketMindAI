@@ -4,6 +4,7 @@ import json
 from contextlib import closing
 import logging
 import os
+import sqlite3
 import threading
 import uuid
 from pathlib import Path
@@ -22,6 +23,7 @@ from .models import AnalysisRequest, RunCreatedResponse, ValidateKeyRequest, Val
 from ..graph.review import ReviewConflict
 from ..dataflows.source_store import SourceStore, SnapshotIntegrityError, snapshot_fingerprint
 from ..dataflows.source_policy import aware_time
+from ..reporting.revision_comparison import compare_revision
 from .report_export import render_report_html
 from .jobs import JobStore
 from .runner import SnapshotBuilder, iso_now, resolve_request_symbol, to_core_request
@@ -154,6 +156,15 @@ def _persist_snapshot(workflow: MarketMindGraph, run_id: str, snapshot: dict[str
 
 def _load_persisted_snapshot(workflow: MarketMindGraph, run_id: str) -> dict[str, Any] | None:
     return workflow.archive.load(run_id)
+
+
+def _saved_revision_comparison(workflow: MarketMindGraph, snapshot: dict) -> dict:
+    parent_id = (snapshot.get("review") or {}).get("parent_run_id")
+    try:
+        previous = workflow.reviews.load(parent_id) if parent_id else None
+    except (ValueError, TypeError, sqlite3.DatabaseError):
+        previous = None
+    return compare_revision(snapshot, previous)
 
 
 def _recover_interrupted(workflow: MarketMindGraph, job: dict) -> dict:
@@ -544,7 +555,17 @@ def create_app(storage_root: str | None = None) -> FastAPI:
         latest = _resolve_snapshot(get_workflow(), run_id, runs, get_jobs())
         if latest is None:
             raise HTTPException(status_code=404, detail="Run not found")
-        return HTMLResponse(render_report_html(latest, autoprint=autoprint))
+        return HTMLResponse(render_report_html(latest, autoprint=autoprint,
+                                              comparison=_saved_revision_comparison(get_workflow(), latest)))
+
+    @app.get("/runs/{run_id}/comparison")
+    @app.get("/api/runs/{run_id}/comparison")
+    def get_revision_comparison(run_id: str) -> JSONResponse:
+        workflow = get_workflow()
+        latest = _resolve_snapshot(workflow, run_id, runs, get_jobs())
+        if latest is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return JSONResponse(_saved_revision_comparison(workflow, latest))
 
     @app.get("/runs/{run_id}/stream")
     @app.get("/api/runs/{run_id}/stream")

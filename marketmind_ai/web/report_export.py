@@ -299,7 +299,43 @@ def _source_sections(snapshot: dict[str, Any]) -> str:
     return result
 
 
-def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str:
+def _revision_comparison_section(comparison) -> str:
+    if not comparison or comparison.get("status") == "not_applicable":
+        return ""
+    result = '<section class="report-section"><h2>Changes from previous version</h2>'
+    if comparison.get("status") != "available":
+        return result + f'<p>{escape(comparison.get("reason") or "Comparison unavailable.")}</p></section>'
+    result += _meta_row("Previous version", comparison["previous"].get("version"))
+    result += _meta_row("Previous run", comparison["previous"]["run_id"])
+    result += _meta_row("Previous report fingerprint", comparison["previous"]["report_hash"])
+    result += _meta_row("Current version", comparison["current"].get("version"))
+    result += _meta_row("Current run", comparison["current"]["run_id"])
+    result += _meta_row("Current report fingerprint", comparison["current"]["report_hash"])
+    data_labels = {"same": "Same saved data snapshot", "different": "Different saved data snapshots",
+                   "unverified": "Data snapshot identity unverified"}
+    result += f'<p>{data_labels[comparison["data_snapshot"]]}</p>'
+    changes = comparison["changed_fields"]
+    if changes:
+        result += '<div class="table-wrap"><table><thead><tr><th>Field</th><th>Previous version</th><th>Current version</th></tr></thead><tbody>'
+        for item in changes:
+            before = item["before"] if item["before"] is not None else "Not recorded"
+            after = item["after"] if item["after"] is not None else "Not recorded"
+            result += f'<tr><th>{escape(item["label"])}</th><td><pre>{escape(before)}</pre></td><td><pre>{escape(after)}</pre></td></tr>'
+        result += "</tbody></table></div>"
+    for label, key in (("Added to this report", "added_evidence"), ("Removed from previous report", "removed_evidence")):
+        rows = comparison[key]
+        result += f"<h3>{label} ({len(rows)})</h3>"
+        for row in rows:
+            result += _pre_section(str(row.get("evidence_id") or "Evidence"),
+                                   "\n".join(str(row.get(key) or "") for key in
+                                             ("claim", "source", "source_date", "excerpt", "interpretation")))
+    if not changes and not comparison["added_evidence"] and not comparison["removed_evidence"]:
+        result += "<p>No changes in the compared conclusion fields or cited evidence.</p>"
+    result += f'<p>Retained evidence items {comparison["unchanged_evidence_count"]}</p></section>'
+    return result
+
+
+def render_report_html(snapshot: dict[str, Any], autoprint: bool = False, comparison: dict | None = None) -> str:
     ticker = snapshot.get("ticker") or snapshot.get("original_input") or "Unknown"
     company_name = snapshot.get("company_name") or ""
     analysis_date = snapshot.get("analysis_date") or "Unknown date"
@@ -364,6 +400,7 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False) -> str
     structured_sections = "".join(
         [
             _structured_decision_section(structured_decision if isinstance(structured_decision, dict) else {}),
+            _revision_comparison_section(comparison),
             _claim_navigation_section(snapshot),
             _source_sections(snapshot),
             _quality_section(report_quality if isinstance(report_quality, dict) else {}),

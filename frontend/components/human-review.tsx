@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ReviewDecision, RunCreatedResponse, RunSnapshot } from "../lib/api-types";
 import { WorkbenchIcon } from "./workbench-icon";
 import { ClaimChecks } from "./claim-checks";
+import { RevisionComparisonPanel } from "./revision-comparison";
 
 const STATUS_LABELS = {
   pending: "Awaiting human review",
@@ -136,6 +137,7 @@ export function HumanReviewPanel({ snapshot, apiBaseUrl, running, onOpenRun, onS
           : "This report has not been accepted into decision memory. You can inspect and export it with its review status."}</p>
         {review.parent_run_id && <button type="button" className="reviewTextButton" disabled={busy || running}
           onClick={() => void openRun(review.parent_run_id!)}>View previous version</button>}
+        <RevisionComparisonPanel snapshot={snapshot} apiBaseUrl={apiBaseUrl} />
         {review.feedback && <div className="reviewFeedback"><strong>Feedback for this version</strong><p>{review.feedback}</p>
           {snapshot?.provider === "offline" && <small>Offline mode uses deterministic fixtures. The feedback is recorded for review; no live model rewrites the analysis.</small>}</div>}
 

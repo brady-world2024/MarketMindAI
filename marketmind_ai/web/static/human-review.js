@@ -94,6 +94,7 @@ function updateReviewControls() {
 }
 
 function renderHumanReview(snapshot) {
+  renderRevisionComparison(snapshot);
   const review = snapshot.review;
   const label = review ? reviewLabels[review.status] : "No human review recorded";
   $("reviewBadge").textContent = label;
@@ -202,6 +203,7 @@ $("approveReportBtn").addEventListener("click", () => void submitHumanReview("ap
 $("rejectReportBtn").addEventListener("click", () => void submitHumanReview("reject"));
 $("requestChangesBtn").addEventListener("click", () => void submitHumanReview("request_changes"));
 $("reviseReportBtn").addEventListener("click", () => void generateRevision());
+$("compareRevisionBtn").addEventListener("click", () => void loadRevisionComparison());
 $("refreshReviewsBtn").addEventListener("click", () => void refreshReviews());
 $("reviewSearch").addEventListener("input", renderReviewQueue);
 $("reviewStatusFilter").addEventListener("change", renderReviewQueue);
