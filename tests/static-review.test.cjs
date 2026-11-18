@@ -27,6 +27,7 @@ function controller() {
     evidenceAnchorId(value) { return /^E\d+$/.test(value) ? `evidence-${value}` : null; },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/claim-evidence.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/revision-comparison.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/human-review.js'), 'utf8'), context);
   return { context, state, requests, elements };
 }
@@ -41,6 +42,37 @@ test('static review shows quotations, saved context and reproducible financial i
   }
   assert.match(html, /&lt;script&gt;source text&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test('switching revisions discards the previous comparison response and allows retry', async () => {
+  const {context,requests,elements} = controller();
+  const report = id => ({run_id:id,status:'completed',review:{
+    status:'pending',version:2,report_hash:id+'-hash',parent_run_id:'parent-'+id,history:[],
+  }});
+  const result = id => ({status:'available',current:{run_id:id,version:2,report_hash:id+'-hash'},
+    previous:{run_id:'parent-'+id,version:1,report_hash:'parent-hash'},
+    data_snapshot:'same', changed_fields:[{label:'Executive summary',before:'Old '+id,after:'New '+id}],
+    added_evidence:[],removed_evidence:[],unchanged_evidence_count:2});
+  context.renderSnapshot(report('old'));
+  context.renderRevisionComparison(report('old'));
+  const first = context.loadRevisionComparison();
+  context.renderSnapshot(report('latest'));
+  context.renderRevisionComparison(report('latest'));
+  const latest = context.loadRevisionComparison();
+  requests.get('/api/runs/latest/comparison').resolve(result('latest'));
+  await latest;
+  requests.get('/api/runs/old/comparison').resolve(result('old'));
+  await first;
+  assert.match(elements.get('revisionComparisonBody').innerHTML,/New latest/);
+  assert.doesNotMatch(elements.get('revisionComparisonBody').innerHTML,/New old/);
+  const failed = context.loadRevisionComparison();
+  requests.get('/api/runs/latest/comparison').reject(new Error('Connection interrupted'));
+  await failed;
+  assert.match(elements.get('revisionComparisonStatus').textContent,/Connection interrupted/);
+  const retry = context.loadRevisionComparison();
+  requests.get('/api/runs/latest/comparison').resolve(result('latest'));
+  await retry;
+  assert.match(elements.get('revisionComparisonBody').innerHTML,/New latest/);
 });
 test('the latest saved report selection wins when responses arrive out of order', async () => {
   const { context, state, requests } = controller();

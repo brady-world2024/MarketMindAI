@@ -261,6 +261,11 @@
             <p id="reviewVersion" class="review-version"></p>
             <p id="revisionFeedback" class="review-feedback" hidden></p>
             <div id="reviewLinks"></div>
+            <section id="revisionComparison" aria-label="Revision comparison" hidden>
+              <button type="button" class="ghost" id="compareRevisionBtn">Compare with previous version</button>
+              <p id="revisionComparisonStatus" role="status"></p>
+              <div id="revisionComparisonBody"></div>
+            </section>
             <details id="reviewEvidence" hidden open><summary>Validation and evidence</summary><div id="reviewEvidenceBody"></div></details>
             <fieldset id="reviewForm" hidden>
               <legend>Review this version</legend>
@@ -284,6 +289,7 @@
       </main>
     </div>
     <script src="/static/claim-evidence.js"></script>
+    <script src="/static/revision-comparison.js"></script>
     <script src="/static/app.js"></script>
     <script src="/static/human-review.js"></script>
   </body>

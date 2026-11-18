@@ -109,6 +109,28 @@ test('claim links open their recorded quotations and calculations without bindin
   assert.equal(claimCheckLinks({...claimFixture, report_verification:null}, 0).length, 0);
 });
 
+test('revision comparison renders recorded before and after values as text', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ComparisonResult } = loadModule('components/revision-comparison.tsx');
+  const data = {
+    status: 'available', previous: {run_id:'parent',version:1,report_hash:'old-hash'},
+    current: {run_id:'child',version:2,report_hash:'new-hash'}, data_snapshot:'same',
+    changed_fields:[{field:'evidence_gap',label:'Evidence gap',before:'Old gap',after:'<script>new gap</script>'}],
+    added_evidence:[{evidence_id:'E2',claim:'New evidence',excerpt:'Saved excerpt'}],
+    removed_evidence:[], unchanged_evidence_count:1,
+  };
+  const html = renderToStaticMarkup(React.createElement(ComparisonResult,{comparison:data}));
+  for(const value of ['Changes from previous version','Old gap','Saved excerpt','Same saved data snapshot','old-hash','new-hash']) {
+    assert.ok(html.includes(value),value);
+  }
+  assert.match(html,/&lt;script&gt;new gap&lt;\/script&gt;/);
+  assert.doesNotMatch(html,/<script>/);
+  const missing = renderToStaticMarkup(React.createElement(ComparisonResult,
+    {comparison:{status:'unavailable',reason:'The previous report is unavailable.'}}));
+  assert.match(missing,/previous report is unavailable/);
+});
+
 test('snapshot provenance distinguishes admitted, excluded and unverified sources with safe downloads', () => {
   const React = require('../frontend/node_modules/react');
   const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');

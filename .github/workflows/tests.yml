@@ -46,6 +46,7 @@ jobs:
           tests/test_job_controls.py
           tests/test_research_usage.py
           tests/test_research_scope.py
+          tests/test_revision_comparison.py
           tests/test_structured_agents.py
           tests/test_workflow.py
 

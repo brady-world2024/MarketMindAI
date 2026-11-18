@@ -24,6 +24,7 @@ function app() {
     window: { setTimeout() {}, clearTimeout() {}, setInterval() { return 1; }, clearInterval() {} },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/claim-evidence.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/revision-comparison.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../marketmind_ai/web/static/app.js'), 'utf8').replace(/bootstrap\(\);\s*$/, ''), context);
   vm.runInContext(`state.providers = [{ value: 'openai', label: 'OpenAI', requires_api_key: true, quick_models: [{ value: 'a', label: 'A' }], deep_models: [{ value: 'b', label: 'B' }] }, { value: 'offline', label: 'Offline', requires_api_key: false, quick_models: [{ value: 'fixture', label: 'Fixture' }], deep_models: [{ value: 'fixture', label: 'Fixture' }] }];`, context);
   $('providerSelect').value = 'openai'; $('quickModelSelect').value = 'a'; $('deepModelSelect').value = 'b';

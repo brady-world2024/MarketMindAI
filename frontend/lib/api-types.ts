@@ -191,6 +191,21 @@ export type EvidenceRow = {
   excerpt?: string; interpretation?: string; freshness?: string; url?: string; provider?: string;
 };
 
+type ReportVersion = { run_id: string; version: number | null; report_hash: string };
+
+export type RevisionComparison = {
+  status: "unavailable" | "not_applicable"; reason?: string;
+} | {
+  status: "available";
+  current: ReportVersion;
+  previous: ReportVersion;
+  changed_fields: {field: string; label: string; before: string | null; after: string | null}[];
+  added_evidence: EvidenceRow[];
+  removed_evidence: EvidenceRow[];
+  unchanged_evidence_count: number;
+  data_snapshot: "same" | "different" | "unverified";
+};
+
 export type ReviewDecision = "approve" | "reject" | "request_changes";
 
 export type HumanReview = {
