@@ -31,6 +31,7 @@ class AnalysisRequest:
     model_call_limit: int | None = None
     research_objective: ResearchObjective | None = None
     research_horizon: ResearchHorizon | None = None
+    recovery_of_run_id: str | None = None
 
     def __post_init__(self) -> None:
         for name, choices in (("research_objective", OBJECTIVE_LABELS), ("research_horizon", HORIZON_LABELS)):

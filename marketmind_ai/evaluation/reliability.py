@@ -164,6 +164,7 @@ def _inspect(report):
     usage = _mapping(report.get("model_usage"))
     return {
         "run_id": report["run_id"], "data_mode": mode, "outcome": outcome,
+        "recovery_of_run_id": _text(report.get("recovery_of_run_id")) or None,
         "required_data": coverage, "core_claims": _claim_traceability(report, decision, records, cutoff, mode),
         "unsupported_claims": len(unsupported) if isinstance(unsupported, list) else None,
         "financial_checks": _verdict_counts(verification.get("financial_claims")),
@@ -189,10 +190,15 @@ def _fraction(numerator, denominator):
     return numerator / denominator if denominator else None
 
 
+def _completion(outcomes):
+    completed = sum(count for outcome, count in outcomes.items() if outcome.startswith("completed_"))
+    terminal = sum(outcomes.values()) - outcomes.get("in_progress", 0)
+    return {"completed": completed, "terminal_runs": terminal, "rate": _fraction(completed, terminal)}
+
+
 def _group_summary(runs):
     outcomes = Counter(run["outcome"] for run in runs)
-    completed = sum(count for outcome, count in outcomes.items() if outcome.startswith("completed_"))
-    terminal = len(runs) - outcomes.get("in_progress", 0)
+    recoveries = Counter(run["outcome"] for run in runs if run["recovery_of_run_id"] is not None)
     data = Counter(available=0, unavailable=0, not_recorded=0)
     claims = Counter(traceable=0, untraceable=0, not_assessed=0)
     financial, qualitative = Counter(), Counter()
@@ -204,7 +210,9 @@ def _group_summary(runs):
     unsupported = _measurement(run["unsupported_claims"] for run in runs)
     return {
         "runs": len(runs), "outcomes": dict(outcomes),
-        "completion": {"completed": completed, "terminal_runs": terminal, "rate": _fraction(completed, terminal)},
+        "completion": _completion(outcomes),
+        "recovery": {"attempts": sum(recoveries.values()), "outcomes": dict(recoveries),
+                     "completion": _completion(recoveries)},
         "required_data": {**data, "coverage": _fraction(data["available"], data["available"] + data["unavailable"])},
         "core_claims": {**claims, "traceability": _fraction(claims["traceable"], claims["traceable"] + claims["untraceable"])},
         "unsupported_claims": {"count": unsupported["total"], "runs_with_audit": unsupported["runs_reporting"]},

@@ -148,8 +148,8 @@ test('snapshot provenance distinguishes admitted, excluded and unverified source
 });
 
 test('replay preserves saved security, date and mode while isolating demo models and credentials', () => {
-  const { buildReplayRequest } = loadModule('lib/snapshot-replay.ts');
-  const saved = { ticker: 'NVDA', analysis_date: '2026-07-04', data_mode: 'demo', data_snapshot: { snapshot_id: 'saved' },
+  const { buildReplayRequest, buildRefreshRequest } = loadModule('lib/snapshot-replay.ts');
+  const saved = { run_id: 'abcd12345678', ticker: 'NVDA', analysis_date: '2026-07-04', data_mode: 'demo', data_snapshot: { snapshot_id: 'saved' },
     selected_analysts: ['market'], output_language: 'English', research_objective: 'earnings', research_horizon: '1_to_3_months' };
   const live = { provider: 'openai', apiKey: 'secret', baseUrl: 'https://live.example', quickModel: 'q', deepModel: 'd', validationResult: { valid: true } };
   const replay = buildReplayRequest(saved, live);
@@ -158,6 +158,10 @@ test('replay preserves saved security, date and mode while isolating demo models
   assert.equal(replay.research_objective, 'earnings'); assert.equal(replay.research_horizon, '1_to_3_months');
   assert.equal(replay.api_key, null); assert.equal(replay.base_url, null);
   assert.equal(replay.quick_model, 'heuristic-fast'); assert.equal(replay.deep_model, 'heuristic-deep');
+  const interrupted = { ...saved, job_status: 'interrupted', recovery_of_run_id: 'prior-run' };
+  assert.equal(buildReplayRequest(interrupted, live).recovery_of_run_id, saved.run_id);
+  assert.equal(buildRefreshRequest(interrupted, live).recovery_of_run_id, undefined);
+  assert.equal(replay.recovery_of_run_id, undefined);
   assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, provider: 'offline' }), /live.*connection/i);
   assert.throws(() => buildReplayRequest({ ...saved, data_mode: 'live' }, { ...live, validationResult: null }), /live.*connection/i);
   assert.equal(buildReplayRequest({ ...saved, data_mode: 'live' }, live).api_key, 'secret');
