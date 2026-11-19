@@ -558,6 +558,7 @@ function renderRunProgress(snapshot) {
   else if (active) phase = `In progress · ${active.label}`;
   else if (snapshot.current_agent) phase = `${snapshot.current_agent}${lastAgent?.status === "completed" ? " · step completed" : " · latest stage"}`;
   if (snapshot.data_availability?.can_recommend === false) phase = "Data incomplete · No AI analysis · No recommendation";
+  if (snapshot.status === "running" && snapshot.model_retry) phase = "Waiting to retry model request";
   const controlPhase = { stopping: "Stopping research", cancelled: "Research cancelled", timed_out: "Research timed out", budget_exhausted: "Model call limit reached" };
   if (controlPhase[snapshot.job_status]) phase = controlPhase[snapshot.job_status];
   $("runPhase").textContent = phase;
@@ -571,9 +572,11 @@ function renderRunProgress(snapshot) {
   const completed = agents.filter((agent) => agent.status === "completed").length;
   $("phaseDetail").textContent = agents.length ? `${completed} of ${agents.length} agent stages complete${snapshot.report_verification ? ` · Validation: ${snapshot.report_verification.status || "recorded"}` : ""}` : "Stages appear as the run reports progress.";
   const usage = snapshot.model_usage;
+  const retries = usage?.calls_retried ?? 0;
+  const retrySummary = retries > 0 ? ` · ${retries} ${retries === 1 ? "retry" : "retries"}` : "";
   $("modelUsage").hidden = !usage;
   $("modelUsage").textContent = usage
-    ? `Model calls ${usage.calls_started}${usage.model_call_limit == null ? " · no limit" : ` / ${usage.model_call_limit}`} · ${usage.calls_failed} failed · Provider-reported tokens ${usage.reported_total_tokens ?? "Not reported"} (${usage.calls_with_reported_total_tokens} calls reported a total) · Combined model call time ${(usage.model_elapsed_ms / 1000).toFixed(1)}s${usage.possibly_incomplete ? " · Last recorded usage before interruption" : ""}`
+    ? `Model calls ${usage.calls_started}${usage.model_call_limit == null ? " · no limit" : ` / ${usage.model_call_limit}`} · ${usage.calls_failed} failed${retrySummary} · Provider-reported tokens ${usage.reported_total_tokens ?? "Not reported"} (${usage.calls_with_reported_total_tokens} calls reported a total) · Combined model call time ${(usage.model_elapsed_ms / 1000).toFixed(1)}s${usage.possibly_incomplete ? " · Last recorded usage before interruption" : ""}`
     : "";
   renderElapsed(snapshot);
   const groups = [

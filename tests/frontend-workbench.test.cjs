@@ -436,6 +436,25 @@ test('completed analysis leaves pending human review as the current stage', () =
   assert.match(html, /1m 2s/);
 });
 
+test('provider retry waiting is distinct from reconnecting and actual retries appear in usage', () => {
+  const React = require('../frontend/node_modules/react');
+  const { renderToStaticMarkup } = require('../frontend/node_modules/react-dom/server');
+  const { ResearchProgress } = loadModule('components/research-progress.tsx');
+  const render = (snapshot, streamState = 'live') => renderToStaticMarkup(React.createElement(ResearchProgress,
+    { snapshot, running: snapshot.status === 'running', streamState, onReconnect() {}, onCancel() {} }));
+  const usage = { calls_started: 2, model_call_limit: 3, calls_failed: 1, calls_retried: 1,
+    reported_total_tokens: null, calls_with_reported_total_tokens: 0, model_elapsed_ms: 10 };
+  const waiting = render({ status: 'running', model_retry: 'rate_limit', latest_update: 'Model rate limit reached.' }, 'reconnecting');
+  assert.match(waiting, /Waiting to retry model request/);
+  assert.match(waiting, /Reconnecting to progress updates/);
+  assert.match(waiting, /Cancel research/);
+  const done = render({ status: 'completed', model_usage: usage });
+  assert.match(done, /1 retry/);
+  assert.doesNotMatch(done, /Waiting to retry model request/);
+  delete usage.calls_retried;
+  assert.doesNotMatch(render({ status: 'completed', model_usage: usage }), /retry|undefined/);
+});
+
 
 test('legacy reports retain evidence and validation even without a human review record', () => {
   const React = require('../frontend/node_modules/react');

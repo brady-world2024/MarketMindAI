@@ -75,6 +75,11 @@ class RunSession:
         snapshot = {**snapshot, "model_usage": self.control.usage_snapshot()}
         reason = self.control.reason
         if not reason:
+            if retry := self.control.retry_reason:
+                return {**snapshot, "model_retry": retry, "latest_update": {
+                    "rate_limit": "The model provider is temporarily rate limiting requests.",
+                    "connection": "The connection to the model provider could not be established.",
+                }[retry]}
             return snapshot
         return {**snapshot, "job_status": "stopping", "stop_reason": reason,
                 "latest_update": {
@@ -85,7 +90,7 @@ class RunSession:
 
     def stream_events(self) -> Iterator[dict[str, Any]]:
         index = 0
-        reported_stop = False
+        reported_state = (None, None)
         while True:
             with self._condition:
                 if index >= len(self._history) and not self._done:
@@ -95,16 +100,16 @@ class RunSession:
             for event in batch:
                 if event["type"] == "snapshot":
                     payload = self.view(event["payload"])
-                    reported_stop |= payload.get("job_status") == "stopping"
+                    reported_state = (payload.get("job_status"), payload.get("model_retry"))
                     event = {**event, "payload": payload}
                 yield event
                 index += 1
             if done:
                 return
-            if not reported_stop:
-                status = self.view(latest)
-                if status and status.get("job_status") == "stopping":
-                    reported_stop = True
+            if status := self.view(latest):
+                state = (status.get("job_status"), status.get("model_retry"))
+                if state != reported_state:
+                    reported_state = state
                     yield {"type": "snapshot", "payload": status}
 
 

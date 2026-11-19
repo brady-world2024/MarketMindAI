@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import threading
 
 import pytest
@@ -6,6 +7,101 @@ from fastapi.testclient import TestClient
 from marketmind_ai.run_control import RunControl, RunStopped, check_running, use_run_control
 from marketmind_ai.web.app import create_app
 from test_job_recovery import DEMO
+
+
+def next_run_event(session, stream):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(next, stream)
+        try:
+            return pending.result(timeout=2)
+        except TimeoutError:
+            session.finish()
+            pytest.fail("Run progress event was not emitted")
+
+
+def test_call_retry_wait_honors_provider_delay_and_deadline(monkeypatch):
+    clock = [0.0]
+    control = RunControl(timeout_seconds=3, clock=lambda: clock[0])
+    # Simulate a spurious wake before Retry-After, then let the clock reach the target.
+    waits = []
+
+    def advance(timeout):
+        waits.append(timeout)
+        clock[0] += min(timeout, 1.0)
+
+    monkeypatch.setattr(control._changed, "wait", advance)
+    control.wait_for_retry("rate_limit", 2)
+    assert waits == [2, 1]
+    assert control.retry_reason is None
+    with pytest.raises(RunStopped, match="timed_out"):
+        control.wait_for_retry("connection", 2)
+    assert clock[0] == 3
+    assert control.retry_reason is None
+    assert control.usage_snapshot()["calls_retried"] == 0
+
+
+def test_waiting_for_provider_is_visible_and_cancel_interrupts_the_wait(monkeypatch):
+    from marketmind_ai.web.app import RunSession
+
+    session = RunSession("retry-progress", model_call_limit=3)
+    session.publish("snapshot", {"run_id": session.run_id, "status": "running", "latest_update": "Research"})
+    stream = session.stream_events()
+    assert next(stream)["payload"].get("model_retry") is None
+    entered_wait = threading.Event()
+    stopped = []
+    original_wait = session.control._changed.wait
+
+    def signal_wait(timeout):
+        entered_wait.set()
+        return original_wait(timeout)
+
+    monkeypatch.setattr(session.control._changed, "wait", signal_wait)
+
+    def worker():
+        try:
+            session.control.wait_for_retry("rate_limit", 5)
+            session.control.begin_model_call(retry=True)
+        except RunStopped as error:
+            stopped.append(error.reason)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    try:
+        assert entered_wait.wait(2)
+        view = session.view(session.latest_snapshot)
+        assert view["model_retry"] == "rate_limit"
+        assert "limit" in view["latest_update"].lower()
+        assert next_run_event(session, stream)["payload"]["model_retry"] == "rate_limit"
+        assert session.control.cancel()
+        thread.join(timeout=0.5)
+        assert not thread.is_alive()
+        stop = next_run_event(session, stream)["payload"]
+        assert stop["job_status"] == "stopping" and "model_retry" not in stop
+        assert stopped == ["cancelled"]
+        assert session.control.usage_snapshot()["calls_retried"] == 0
+    finally:
+        session.control.cancel()
+        thread.join(timeout=1)
+        session.finish()
+        stream.close()
+
+
+def test_stream_clears_waiting_state_as_soon_as_model_retry_starts(monkeypatch):
+    from marketmind_ai.web.app import RunSession
+
+    session = RunSession("retry-start")
+    session.publish("snapshot", {"run_id": session.run_id, "status": "running", "latest_update": "Research"})
+    events = session.stream_events()
+    assert next(events)["payload"]["latest_update"] == "Research"
+    reason = ["connection"]
+    monkeypatch.setattr(type(session.control), "retry_reason", property(lambda _: reason[0]))
+    assert session.view(session.latest_snapshot)["model_retry"] == "connection"
+    assert next_run_event(session, events)["payload"]["model_retry"] == "connection"
+    reason[0] = None
+    restored = next_run_event(session, events)["payload"]
+    assert restored["latest_update"] == "Research" and "model_retry" not in restored
+    session.finish()
+    events.close()
 
 
 def test_first_stop_reason_wins_and_completion_seals():

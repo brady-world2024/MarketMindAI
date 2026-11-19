@@ -28,6 +28,16 @@ def test_export_keeps_legacy_string_and_statement_claims_readable():
     assert "Source check</a>" not in html and "Calculation E1</a>" not in html
 
 
+def test_export_shows_actual_retries_and_accepts_old_usage_records():
+    from marketmind_ai.run_control import RunControl
+
+    snapshot = {"ticker": "ABC", "model_usage": RunControl().usage_snapshot()}
+    snapshot["model_usage"].update(calls_started=2, calls_failed=1, calls_retried=1)
+    assert "Model retries" in render_report_html(snapshot)
+    snapshot["model_usage"].pop("calls_retried")
+    assert "Model retries" not in render_report_html(snapshot)
+
+
 def test_no_recommendation_export_explains_the_data_gap_and_refresh_action():
     snapshot = json.loads((Path(__file__).parent / "claim-evidence-fixture.json").read_text())
     snapshot['data_mode'] = 'live'

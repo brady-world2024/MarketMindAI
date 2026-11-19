@@ -201,3 +201,196 @@ def test_restart_labels_usage_as_last_recorded(tmp_path):
     restored = JobStore(tmp_path).get("usage-example")
     assert restored["job_status"] == "interrupted"
     assert restored["model_usage"]["possibly_incomplete"]
+
+
+def provider_error(status, code=None, retry_after="0", **metadata):
+    import httpx
+    from openai import APIStatusError
+
+    body = {"code": code, **metadata}
+    headers = {"Retry-After": retry_after} if retry_after is not None else {}
+    request = httpx.Request("POST", "https://provider.example/v1/responses")
+    response = httpx.Response(status, request=request, json={"error": body}, headers=headers)
+    return APIStatusError("private provider diagnostic", response=response, body=body)
+
+
+class ModelAttempts:
+    def __init__(self, *responses):
+        self.responses = iter(responses)
+        self.inputs = []
+
+    def invoke(self, value):
+        self.inputs.append(value)
+        response = next(self.responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def test_transient_rate_limit_plus_success_counts_each_attempt_and_uses_same_input():
+    from langchain_core.messages import AIMessage
+    reply = AIMessage(content="answer", usage_metadata={"input_tokens": 3, "output_tokens": 1, "total_tokens": 4})
+    model = ModelAttempts(provider_error(429, "rate_limit_exceeded"), reply)
+    control = RunControl(model_call_limit=2)
+    with use_run_control(control):
+        assert invoke_model(model, "Original input") == reply
+    control.seal()
+    assert model.inputs == ["Original input", "Original input"]
+    usage = control.usage_snapshot()
+    assert (usage["calls_started"], usage["calls_failed"], usage["calls_completed"], usage["calls_retried"]) == (2, 1, 1, 1)
+    assert usage["reported_total_tokens"] == 4
+
+
+def test_retry_ceiling_surfaces_the_second_failure_without_a_third_call():
+    first = provider_error(429, "rate_limit_exceeded")
+    second = provider_error(429, "rate_limit_exceeded")
+    model = ModelAttempts(first, second)
+    control = RunControl()
+    with use_run_control(control), pytest.raises(type(second)) as failed:
+        invoke_model(model, "research")
+    assert failed.value is second
+    assert control.usage_snapshot()["calls_retried"] == 1
+    assert control.usage_snapshot()["calls_failed"] == 2
+
+
+@pytest.mark.parametrize("status,code,wait,metadata", [
+    (401, None, "0", {}),
+    (503, None, "0", {}),
+    (429, "insufficient_quota", "0", {"type": "rate_limit_error"}),
+    (429, None, "0", {}),
+    (429, "rate_limit_exceeded", "6", {}),
+    (429, "rate_limit_exceeded", "0", {"type": "billing_hard_limit_reached"}),
+])
+def test_uncertain_or_non_transient_http_failures_are_not_retried(status, code, wait, metadata):
+    first = provider_error(status, code, wait, **metadata)
+    model = ModelAttempts(first)
+    with use_run_control(RunControl()), pytest.raises(type(first)) as failed:
+        invoke_model(model, "research")
+    assert failed.value is first
+    assert len(model.inputs) == 1
+
+
+def test_sdk_connection_failure_before_send_is_retried_but_read_timeout_is_not(monkeypatch):
+    import httpx
+    from openai import APIConnectionError, APITimeoutError
+
+    request = httpx.Request("POST", "https://provider.example/v1/responses")
+    not_connected = APIConnectionError(request=request)
+    not_connected.__cause__ = httpx.ConnectError("connection refused", request=request)
+    control = RunControl()
+    def await_retry(reason, delay):
+        assert reason == "connection"
+        assert delay == 1
+    monkeypatch.setattr(control, "wait_for_retry", await_retry, raising=False)
+    model = ModelAttempts(not_connected, "recovered")
+    with use_run_control(control):
+        assert invoke_model(model, "same") == "recovered"
+
+    timed_out = APITimeoutError(request=request)
+    timed_out.__cause__ = httpx.ReadTimeout("may have been processed", request=request)
+    model = ModelAttempts(timed_out)
+    with use_run_control(RunControl()), pytest.raises(APITimeoutError):
+        invoke_model(model, "same")
+    assert len(model.inputs) == 1
+
+
+def test_retry_uses_an_available_budget_slot():
+    first = provider_error(429, "rate_limit_exceeded")
+    model = ModelAttempts(first)
+    control = RunControl(model_call_limit=1)
+    with use_run_control(control), pytest.raises(RunStopped, match="budget_exhausted"):
+        invoke_model(model, "attempt")
+    assert model.inputs == ["attempt"]
+    assert control.usage_snapshot()["calls_retried"] == 0
+
+
+def test_retry_after_can_be_a_date():
+    from datetime import datetime, timezone
+    from marketmind_ai.model_retry import retry_instruction
+
+    error = provider_error(429, "rate_limit_exceeded", "Thu, 01 Jan 2026 00:00:04 GMT")
+    fixed = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    assert retry_instruction(error, now=fixed).delay_seconds == 4
+
+
+def test_retry_respects_millisecond_delays_and_provider_refusal():
+    from marketmind_ai.model_retry import retry_instruction
+
+    error = provider_error(429, "rate_limit_exceeded", None)
+    error.response.headers["retry-after-ms"] = "6000"
+    assert retry_instruction(error) is None
+    error.response.headers["retry-after-ms"] = "1500"
+    assert retry_instruction(error).delay_seconds == 1.5
+    error.response.headers["x-should-retry"] = "false"
+    assert retry_instruction(error) is None
+
+
+def test_openai_sdk_requests_are_retried_once_by_the_run_not_the_sdk():
+    import httpx
+    from marketmind_ai.llm_clients.openai_client import NormalizedChatOpenAI
+
+    requests = []
+
+    def respond(request):
+        requests.append(request.content)
+        if len(requests) == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"},
+                                  json={"error": {"code": "rate_limit_exceeded", "message": "Retry"}})
+        return httpx.Response(200, json={
+            "id": "test", "object": "chat.completion", "model": "gpt-4o-mini", "created": 1,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "answer"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5},
+        })
+
+    control = RunControl(model_call_limit=2)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http_client, use_run_control(control):
+        model = NormalizedChatOpenAI(model="gpt-4o-mini", api_key="test-fixture", http_client=http_client, max_retries=0)
+        assert invoke_model(model, "Research").content == "answer"
+    assert len(requests) == 2 and requests[0] == requests[1]
+    usage = control.usage_snapshot()
+    assert usage["calls_retried"] == 1 and usage["reported_total_tokens"] == 5
+
+
+def test_retry_classification_accepts_provider_formats_only_when_rate_limit_is_clear():
+    import httpx
+    from anthropic import RateLimitError
+    from marketmind_ai.model_retry import retry_instruction
+
+    response = httpx.Response(429, headers={"Retry-After": "0"}, request=httpx.Request("POST", "https://provider.example/messages"))
+    assert retry_instruction(RateLimitError("rate limited", response=response, body={"type": "rate_limit_error"})).reason == "rate_limit"
+
+
+def test_google_resource_exhausted_requires_explicit_rate_limit_reason():
+    import httpx
+    from marketmind_ai.model_retry import retry_instruction
+
+    google_errors = pytest.importorskip("google.genai.errors")
+    from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
+
+    response = httpx.Response(429, headers={"Retry-After": "0"})
+    wrapped = ChatGoogleGenerativeAIError("private provider diagnostic")
+    wrapped.__cause__ = google_errors.ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+        {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "RATE_LIMIT_EXCEEDED"},
+    ]}}, response)
+    assert retry_instruction(wrapped).reason == "rate_limit"
+    wrapped.__cause__ = google_errors.ClientError(429, {"error": {"status": "RESOURCE_EXHAUSTED"}}, response)
+    assert retry_instruction(wrapped) is None
+
+
+def test_rate_limit_handling_works_without_new_google_sdk(monkeypatch):
+    import builtins
+    from pathlib import Path
+    import runpy
+    import marketmind_ai
+
+    import_module = builtins.__import__
+
+    def without_google_genai(name, *args, **kwargs):
+        if name == "google.genai.errors":
+            raise ModuleNotFoundError(name)
+        return import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_google_genai)
+    path = Path(marketmind_ai.__file__).with_name("model_retry.py")
+    classify = runpy.run_path(str(path))["retry_instruction"]
+    assert classify(provider_error(429, "rate_limit_exceeded")).reason == "rate_limit"

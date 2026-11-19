@@ -69,6 +69,19 @@ test('static research sends optional scope and shows the choices saved in each r
   assert.equal($('researchScope').hidden, true);
 });
 
+test('static progress shows model retry waiting and the number actually made', () => {
+  const { context, $ } = app();
+  context.renderRunProgress({status: 'running', model_retry: 'connection'});
+  assert.equal($('runPhase').textContent, 'Waiting to retry model request');
+  const usage = {calls_started: 2, calls_failed: 1, calls_retried: 1, model_call_limit: 3,
+    reported_total_tokens: null, calls_with_reported_total_tokens: 0, model_elapsed_ms: 50};
+  context.renderRunProgress({status: 'completed', model_usage: usage});
+  assert.match($('modelUsage').textContent, /1 retry/);
+  delete usage.calls_retried;
+  context.renderRunProgress({status: 'completed', model_usage: usage});
+  assert.doesNotMatch($('modelUsage').textContent, /retry|undefined/);
+});
+
 test('static refresh uses the saved company and date and never sends live credentials for a demo', () => {
   const {context,$} = app();
   $('tickerInput').value='OTHER';
