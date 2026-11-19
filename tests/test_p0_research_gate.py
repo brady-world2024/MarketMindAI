@@ -4,6 +4,7 @@ import pytest
 
 from marketmind_ai.dataflows.interface import VENDOR_METHODS
 from marketmind_ai.dataflows.instrument_metadata import InstrumentEligibility
+from marketmind_ai.evaluation.reliability import evaluate_reliability
 from marketmind_ai.graph.marketmind_graph import MarketMindGraph
 from marketmind_ai.graph.request import AnalysisRequest
 from marketmind_ai.web.models import RunSnapshot
@@ -51,6 +52,10 @@ def test_missing_required_data_without_api_key_saves_nonactionable_materials(una
     assert final['data_availability']['ai_analysis_performed'] is False
     assert final['source_attempts'] and final['source_materials']
     assert workflow.reviews.load('partial-example')['source_materials'] == final['source_materials']
+    reliability = evaluate_reliability([final])
+    assert reliability['violation_count'] == 0
+    assert reliability['by_data_mode']['live']['outcomes'] == {'completed_no_recommendation': 1}
+    assert reliability['runs'][0]['required_data'] == {'available': 2, 'unavailable': 3, 'not_recorded': 0}
     assert RunSnapshot.model_validate(final).model_dump()['data_mode'] == 'live'
     exported = render_report_html(final)
     assert 'income_statement' in exported and 'get_cashflow' in exported
