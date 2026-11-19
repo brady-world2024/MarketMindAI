@@ -9,6 +9,44 @@ DEMO = {"ticker": "NVDA", "analysis_date": "2026-06-12", "llm_provider": "offlin
         "quick_model": "heuristic-fast", "deep_model": "heuristic-deep", "analysts": ["market"]}
 
 
+def test_active_workflow_stream_resumes_after_http_header_or_snapshot_cursor(tmp_path, monkeypatch):
+    class HeldWorker:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("marketmind_ai.web.app.AnalysisThread", HeldWorker)
+    app = create_app(str(tmp_path))
+    client = TestClient(app)
+    run = client.post("/api/runs", json=DEMO).json()
+    session = app.state.runs.get(run["run_id"])
+    first = client.get(f"/api/runs/{session.run_id}").json()
+    first_cursor = first["stream_cursor"]
+    mid = {**first, "status": "running", "latest_update": "mid-run-marker"}
+    mid.pop("stream_cursor")
+    session.publish("snapshot", mid)
+    middle_cursor = client.get(f"/api/runs/{session.run_id}").json()["stream_cursor"]
+    final = {**mid, "status": "completed", "latest_update": "final-run-marker"}
+    session.publish("snapshot", final)
+    session.publish("complete", final)
+    session.finish()
+
+    replay = client.get(run["stream_url"], params={"after": first_cursor})
+    assert replay.status_code == 200
+    assert replay.headers["cache-control"] == "no-cache"
+    assert replay.headers["x-accel-buffering"] == "no"
+    assert f"id: {middle_cursor}\n" in replay.text
+    assert "mid-run-marker" in replay.text and "final-run-marker" in replay.text
+    assert f"id: {first_cursor}\n" not in replay.text
+    resumed = client.get(run["stream_url"], params={"after": first_cursor}, headers={"Last-Event-ID": middle_cursor})
+    assert "event: complete" in resumed.text
+    assert "mid-run-marker" not in resumed.text
+    assert "final-run-marker" in resumed.text
+    assert "mid-run-marker" not in client.get(run["stream_url"], headers={"Last-Event-ID": "invalid"}).text
+
+
 def test_queued_job_is_visible_after_restart_without_credentials(tmp_path, monkeypatch):
     class HeldWorker:
         def __init__(self, **kwargs):
@@ -23,7 +61,8 @@ def test_queued_job_is_visible_after_restart_without_credentials(tmp_path, monke
         "research_objective": "company_overview", "research_horizon": "1_to_4_weeks"})
     assert response.status_code == 200
     run_id = response.json()["run_id"]
-    assert first.get(f"/api/runs/{run_id}").json()["status"] == "queued"
+    queued = first.get(f"/api/runs/{run_id}").json()
+    assert queued["status"] == "queued"
     restarted = TestClient(create_app(str(tmp_path)))
     result = restarted.get(f"/api/runs/{run_id}/result")
     assert result.status_code == 200
@@ -32,7 +71,7 @@ def test_queued_job_is_visible_after_restart_without_credentials(tmp_path, monke
     assert result.json()["research_objective"] == "company_overview"
     assert result.json()["research_horizon"] == "1_to_4_weeks"
     assert restarted.get("/api/jobs?status=interrupted").json()[0]["run_id"] == run_id
-    sse = restarted.get(f"/api/runs/{run_id}/stream").text
+    sse = restarted.get(f"/api/runs/{run_id}/stream", headers={"Last-Event-ID": queued["stream_cursor"]}).text
     assert "event: complete" in sse and "interrupted" in sse
     assert b"must-not-be-persisted" not in (tmp_path / "jobs.sqlite3").read_bytes()
 

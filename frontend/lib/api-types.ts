@@ -136,6 +136,7 @@ export type RunSnapshot = {
   source_materials?: {method: string; provider: string; retrieved_at?: string; content: unknown; source_url?: string | null}[];
   run_id: string;
   status: "queued" | "running" | "completed" | "error";
+  stream_cursor?: string;
   model_usage?: ModelUsage | null;
   job_status?: "interrupted" | "stopping" | "cancelled" | "timed_out" | "budget_exhausted";
   model_retry?: "rate_limit" | "connection";

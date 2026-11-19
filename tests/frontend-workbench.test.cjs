@@ -189,7 +189,7 @@ test('refresh creates a new data request from saved research identity and isolat
   assert.throws(()=>buildRefreshRequest({...saved,data_mode:'unknown'},settings),/mode|unverified/i);
 });
 
-test('a failed refresh start keeps the saved report and permits retry', async () => {
+function workbenchHarness(globals) {
   const React = require('../frontend/node_modules/react');
   const values = [];
   let cursor = 0;
@@ -198,19 +198,14 @@ test('a failed refresh start keeps the saved report and permits retry', async ()
     if (!(index in values)) values[index] = typeof initial === 'function' ? initial() : initial;
     return [values[index], value => { values[index] = typeof value === 'function' ? value(values[index]) : value; }];
   };
-  const saved = {...claimFixture, data_mode:'demo', final_signal:'No Recommendation'};
-  const requests = [];
   const {ResearchWorkbench} = loadModule('components/research-workbench.tsx', {
     react: {...React, useState, useReducer: (reducer, initial) => {
       const [value, setValue] = useState(initial);
       return [value, action => setValue(current => reducer(current, action))];
     }, useRef: initial => useState(() => ({current:initial}))[0], useEffect() {},
-    useMemo: calculate => calculate(), useDeferredValue: value => value},
+    useMemo: calculate => calculate(), useDeferredValue: value => value, startTransition: update => update()},
     window: {localStorage:{setItem(){}}},
-    fetch(url, options) {
-      if (options?.method === 'POST') return new Promise(resolve => requests.push({url,options,resolve}));
-      return Promise.resolve({ok:true,json:async () => saved});
-    },
+    ...globals,
   });
   const render = () => { cursor = 0; return ResearchWorkbench(); };
   const find = (tree, name) => {
@@ -218,6 +213,18 @@ test('a failed refresh start keeps the saved report and permits retry', async ()
     if (Array.isArray(tree)) return tree.map(child => find(child,name)).find(Boolean);
     return tree.type?.name === name ? tree : find(tree.props?.children,name);
   };
+  return {render, find};
+}
+
+test('a failed refresh start keeps the saved report and permits retry', async () => {
+  const saved = {...claimFixture, data_mode:'demo', final_signal:'No Recommendation'};
+  const requests = [];
+  const {render, find} = workbenchHarness({
+    fetch(url, options) {
+      if (options?.method === 'POST') return new Promise(resolve => requests.push({url,options,resolve}));
+      return Promise.resolve({ok:true,json:async () => saved});
+    },
+  });
   await find(render(),'ReportHistory').props.onOpenRun(saved.run_id);
   find(render(),'ResearchReport').props.onRefresh();
   assert.equal(requests.length,1);
@@ -232,6 +239,31 @@ test('a failed refresh start keeps the saved report and permits retry', async ()
   assert.equal(requests.length,2);
   requests[1].resolve({ok:false,text:async () => JSON.stringify({detail:'Unable to start research. Try again.'})});
   await new Promise(resolve => setImmediate(resolve));
+});
+
+test('opening a running report resumes from its snapshot cursor and ignores replaced streams', async () => {
+  const running = {...claimFixture, ...preflight.passed, run_id:'active', status:'running', final_decision:null};
+  const snapshots = [{...running, stream_cursor:'session:12'}, {...running, stream_cursor:'session:14'}];
+  const sources = [];
+  const {render, find} = workbenchHarness({
+    fetch: async () => ({ok:true, json:async () => snapshots.shift()}),
+    EventSource: class {
+      constructor(url) { this.url=url; this.events={}; sources.push(this); }
+      addEventListener(kind, callback) { this.events[kind]=callback; }
+      close() { this.closed=true; }
+    },
+  });
+  const open = () => find(render(),'ReportHistory').props.onOpenRun('active');
+  await open();
+  assert.match(sources[0].url, /\/runs\/active\/stream\?after=session%3A12$/);
+  await open();
+  assert.equal(sources[0].closed,true);
+  assert.match(sources[1].url, /\/runs\/active\/stream\?after=session%3A14$/);
+  sources[0].events.snapshot({data:JSON.stringify({...claimFixture, run_id:'active', status:'completed'})});
+  assert.equal(find(render(),'ResearchProgress').props.snapshot.stream_cursor,'session:14');
+  sources[1].events.snapshot({data:JSON.stringify({...claimFixture, run_id:'active', status:'completed'})});
+  assert.equal(sources[1].closed,true);
+  assert.equal(find(render(),'ResearchProgress').props.snapshot.status,'completed');
 });
 
 test('no-recommendation recovery distinguishes missing data from recorded validation limits', () => {

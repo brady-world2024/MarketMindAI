@@ -19,6 +19,63 @@ def next_run_event(session, stream):
             pytest.fail("Run progress event was not emitted")
 
 
+def test_stream_replays_identical_snapshots_and_recovers_to_latest_when_cursor_is_expired(monkeypatch):
+    from marketmind_ai.web.app import RunSession
+
+    monkeypatch.setattr("marketmind_ai.web.app.STREAM_HISTORY_LIMIT", 3, raising=False)
+    session = RunSession("cursor-fixture")
+    separate = RunSession("cursor-fixture")
+    for target in (session, separate):
+        target.publish("snapshot", {"status": "running", "latest_update": "first"})
+    initial = next(session.stream_events())
+    other_id = next(separate.stream_events())["id"]
+    stream = session.stream_events(after=initial["id"])
+    session.publish("snapshot", {"status": "running", "latest_update": "second"})
+    second = next_run_event(session, stream)
+    assert second["payload"]["latest_update"] == "second"
+    session.control.begin_model_call()
+    assert next_run_event(session, session.stream_events(after=initial["id"])) == second
+    for label in ("third", "fourth", "latest"):
+        session.publish("snapshot", {"status": "running", "latest_update": label})
+    for after in (initial["id"], other_id, "broken", second["id"].split(":")[0] + ":9999", None):
+        latest = next_run_event(session, session.stream_events(after=after))
+        assert latest["payload"]["latest_update"] == "latest"
+        assert latest["payload"]["stream_cursor"] == latest["id"]
+    session.finish()
+
+
+def test_sse_keepalive_comment_does_not_advance_cursor(monkeypatch):
+    from marketmind_ai.web.app import RunSession, _to_sse
+
+    monkeypatch.setattr("marketmind_ai.web.app.STREAM_HEARTBEAT_SECONDS", 0, raising=False)
+    session = RunSession("heartbeat")
+    session.publish("snapshot", {"status": "running"})
+    stream = session.stream_events()
+    first = next(stream)
+    assert f"id: {first['id']}".encode() in _to_sse(first)
+    assert _to_sse(next_run_event(session, stream)) == b": keep-alive\n\n"
+    session.publish("snapshot", {"status": "completed"})
+    final = next_run_event(session, stream)
+    assert int(final["id"].rsplit(":", 1)[-1]) == int(first["id"].rsplit(":", 1)[-1]) + 1
+    session.finish()
+
+
+def test_stream_replay_is_unchanged_after_nested_snapshot_mutations():
+    from marketmind_ai.web.app import RunSession, _to_sse
+
+    session = RunSession("immutable-snapshot")
+    raw = {"status": "running", "reports": [{"content": "original"}]}
+    session.publish("snapshot", raw)
+    first = next(session.stream_events())
+    original_wire = _to_sse(first)
+    raw["reports"][0]["content"] = "publisher edit"
+    session.latest_snapshot["reports"][0]["content"] = "worker edit"
+    session.current_snapshot()["reports"][0]["content"] = "GET edit"
+    first["payload"]["reports"][0]["content"] = "stream consumer edit"
+    assert _to_sse(next(session.stream_events())) == original_wire
+    session.finish()
+
+
 def test_call_retry_wait_honors_provider_delay_and_deadline(monkeypatch):
     clock = [0.0]
     control = RunControl(timeout_seconds=3, clock=lambda: clock[0])

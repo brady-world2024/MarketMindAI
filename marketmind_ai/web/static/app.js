@@ -777,9 +777,10 @@ function closeEventSource() {
   }
 }
 
-function connectRunStream(runId) {
+function connectRunStream(runId, cursor) {
   closeEventSource();
-  const source = new EventSource(`/api/runs/${runId}/stream`);
+  const path = `/api/runs/${encodeURIComponent(runId)}/stream`;
+  const source = new EventSource(cursor ? `${path}?after=${encodeURIComponent(cursor)}` : path);
   state.eventSource = source;
   $("streamStatus").textContent = "Connecting to live updates…";
   const isCurrent = () => state.runId === runId && state.eventSource === source;
@@ -817,7 +818,9 @@ function connectRunStream(runId) {
     if (event.data) {
       try { failRun(JSON.parse(event.data).message || "Run failed."); return; } catch (_ignored) {}
     }
-    $("streamStatus").textContent = "Live updates interrupted · reconnecting. The run may still be active.";
+    $("streamStatus").textContent = source.readyState === EventSource.CLOSED
+      ? "Live updates closed · reload the report to reconnect."
+      : "Live updates interrupted · reconnecting. The run may still be active.";
   });
 }
 
@@ -896,17 +899,26 @@ async function cancelRun() {
   }
 }
 
-async function refreshRun() {
+async function refreshRun(reconnect = false) {
   if (!state.runId) return;
   const id = state.runId;
   const generation = state.loadGeneration;
+  const beforeReload = state.snapshot;
   try {
-    const snapshot = await getJson(`/api/runs/${id}`);
+    const snapshot = await getJson(`/api/runs/${encodeURIComponent(id)}`);
     if (id !== state.runId || generation !== state.loadGeneration) return;
-    if (state.snapshot?.run_id === id && ["completed", "error"].includes(state.snapshot.status)
-        && ["queued", "running"].includes(snapshot.status)) return;
-    renderSnapshot(snapshot);
-  } catch (_error) {}
+    const active = ["queued", "running"];
+    const receivedUpdate = state.snapshot?.run_id === id && state.snapshot !== beforeReload;
+    if (!receivedUpdate || (active.includes(state.snapshot.status) && !active.includes(snapshot.status))) {
+      if (!active.includes(snapshot.status)) closeEventSource();
+      renderSnapshot(snapshot);
+    }
+    if (reconnect && active.includes(state.snapshot?.status)) connectRunStream(id, state.snapshot.stream_cursor);
+  } catch (_error) {
+    if (reconnect && id === state.runId && generation === state.loadGeneration) {
+      $("streamStatus").textContent = "Unable to reload this report. Try again.";
+    }
+  }
 }
 
 function exportPdf() {
@@ -959,7 +971,7 @@ function bindEvents() {
   $("refreshDataBtn").addEventListener("click", () => { if (state.snapshot) void startRun(state.snapshot); });
   $("cancelRunBtn").addEventListener("click", () => { void cancelRun(); });
   $("refreshResultBtn").addEventListener("click", () => {
-    void refreshRun();
+    void refreshRun(true);
   });
   $("exportPdfBtn").addEventListener("click", exportPdf);
   $("depthInput").addEventListener("input", () => {
