@@ -66,7 +66,7 @@ async function openReviewedRun(id) {
     $("reviewComment").value = "";
     reviewError("");
     renderSnapshot(snapshot);
-    if (["queued", "running"].includes(snapshot.status)) connectRunStream(id);
+    if (["queued", "running"].includes(snapshot.status)) connectRunStream(id, snapshot.stream_cursor);
   } catch (error) {
     if (generation === state.loadGeneration) throw error;
   }

@@ -518,9 +518,10 @@ export function ResearchWorkbench() {
     }
   }
 
-  function connectToStream(run: RunCreatedResponse) {
+  function connectToStream(run: RunCreatedResponse, cursor?: string) {
     eventSourceRef.current?.close();
-    const source = new EventSource(apiUrl(run.stream_url));
+    const path = cursor ? withQuery(run.stream_url, `after=${encodeURIComponent(cursor)}`) : run.stream_url;
+    const source = new EventSource(apiUrl(path));
     eventSourceRef.current = source;
     const generation = loadGeneration.current;
     let finished = false;
@@ -596,10 +597,15 @@ export function ResearchWorkbench() {
   async function openSavedRun(id: string) {
     const generation = ++loadGeneration.current;
     eventSourceRef.current?.close();
-    const response = await fetch(apiUrl(`/runs/${encodeURIComponent(id)}`));
-    if (generation !== loadGeneration.current) return;
-    if (!response.ok) throw new Error("Unable to load the saved run. Refresh recent reports and choose another report.");
-    const next = (await response.json()) as RunSnapshot;
+    let next: RunSnapshot;
+    try {
+      const response = await fetch(apiUrl(`/runs/${encodeURIComponent(id)}`));
+      if (!response.ok) throw new Error("Unable to load the saved run. Refresh recent reports and choose another report.");
+      next = (await response.json()) as RunSnapshot;
+    } catch (cause) {
+      if (generation === loadGeneration.current) throw cause;
+      return;
+    }
     if (generation !== loadGeneration.current) return;
     setSnapshot(next);
     setRunId(id);
@@ -609,7 +615,8 @@ export function ResearchWorkbench() {
     const running = next.status === "queued" || next.status === "running";
     setIsRunning(running);
     setStreamState(running ? "connecting" : "finished");
-    if (running) connectToStream({ run_id: id, stream_url: `/runs/${id}/stream`, result_url: `/runs/${id}/result`, report_url: `/runs/${id}/report` });
+    if (running) connectToStream({ run_id: id, stream_url: `/runs/${id}/stream`, result_url: `/runs/${id}/result`,
+      report_url: `/runs/${id}/report` }, next.stream_cursor);
   }
 
   function startRevision(run: RunCreatedResponse) {

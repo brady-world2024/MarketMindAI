@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import json
+from collections import deque
 from contextlib import closing
+from copy import deepcopy
+import json
 import logging
 import os
 import sqlite3
 import threading
 import uuid
 from pathlib import Path
+from time import monotonic
 from typing import Any, Callable, Iterator, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +34,9 @@ from .symbols_router import router as symbols_router
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+STREAM_HISTORY_LIMIT = 64
+STREAM_HEARTBEAT_SECONDS = 15
+STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 logger = logging.getLogger(__name__)
 
 
@@ -47,17 +53,31 @@ class RunSession:
         self.started_at = iso_now()
         self.control = RunControl(model_call_limit=model_call_limit)
         self._condition = threading.Condition()
-        self._history: list[dict[str, Any]] = []
+        self._history: deque[tuple[int, dict[str, Any]]] = deque(maxlen=STREAM_HISTORY_LIMIT)
+        self._stream_id = uuid.uuid4().hex
+        self._sequence = 0
+        self._snapshot_event: tuple[int, dict[str, Any]] | None = None
         self._latest_snapshot: dict[str, Any] | None = None
         self._done = False
 
     def publish(self, event_type: str, payload: dict[str, Any]) -> None:
+        payload = deepcopy(payload)
         with self._condition:
-            event = {"type": event_type, "payload": payload}
-            self._history.append(event)
             if event_type == "snapshot":
                 self._latest_snapshot = payload
-            self._condition.notify_all()
+                payload = self.view(payload)
+            self._record_event(event_type, payload)
+
+    def _record_event(self, kind: str, payload: dict[str, Any]) -> None:
+        self._sequence += 1
+        cursor = f"{self._stream_id}:{self._sequence}"
+        if kind == "snapshot" and payload.get("status") in {"queued", "running"}:
+            payload = {**payload, "stream_cursor": cursor}
+        event = (self._sequence, {"id": cursor, "type": kind, "payload": payload})
+        self._history.append(event)
+        if kind == "snapshot":
+            self._snapshot_event = event
+        self._condition.notify_all()
 
     def finish(self) -> None:
         with self._condition:
@@ -67,7 +87,8 @@ class RunSession:
     @property
     def latest_snapshot(self) -> dict[str, Any] | None:
         with self._condition:
-            return self._latest_snapshot
+            snapshot = self._latest_snapshot
+        return deepcopy(snapshot)
 
     def view(self, snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
         if snapshot is None or snapshot.get("status") not in {"queued", "running"}:
@@ -88,29 +109,59 @@ class RunSession:
                     "budget_exhausted": "Model call limit reached. Waiting for active calls to return.",
                 }[reason]}
 
-    def stream_events(self) -> Iterator[dict[str, Any]]:
-        index = 0
-        reported_state = (None, None)
+    def _sync_runtime_progress(self) -> dict[str, Any] | None:
+        if self._snapshot_event is None:
+            return None
+        recorded = self._snapshot_event[1]["payload"]
+        if self._done or recorded.get("status") not in {"queued", "running"}:
+            return recorded
+        current = self.view(self._latest_snapshot)
+        if any(current.get(key) != recorded.get(key) for key in ("job_status", "model_retry")):
+            self._record_event("snapshot", current)
+        return {**current, "stream_cursor": self._snapshot_event[1]["id"]}
+
+    def current_snapshot(self, fallback: dict[str, Any] | None = None) -> dict[str, Any] | None:
+        with self._condition:
+            snapshot = self._sync_runtime_progress() or self.view(fallback)
+        return deepcopy(snapshot)
+
+    def _cursor_position(self, cursor: str | None) -> int | None:
+        if cursor:
+            stream_id, _, sequence = cursor.partition(":")
+            if (stream_id == self._stream_id and len(sequence) <= 18
+                    and sequence.isascii() and sequence.isdecimal()):
+                return int(sequence)
+        return None
+
+    def stream_events(self, after: str | None = None) -> Iterator[dict[str, Any]]:
+        position = self._cursor_position(after)
+        next_heartbeat = monotonic() + STREAM_HEARTBEAT_SECONDS
         while True:
             with self._condition:
-                if index >= len(self._history) and not self._done:
-                    self._condition.wait(timeout=0.5)
-                batch = self._history[index:]
-                latest, done = self._latest_snapshot, self._done
-            for event in batch:
-                if event["type"] == "snapshot":
-                    payload = self.view(event["payload"])
-                    reported_state = (payload.get("job_status"), payload.get("model_retry"))
-                    event = {**event, "payload": payload}
-                yield event
-                index += 1
+                self._sync_runtime_progress()
+                batch = []
+                if self._history:
+                    oldest = self._history[0][0]
+                    # A missing or stale cursor starts at a complete current snapshot.
+                    if position is None or not oldest - 1 <= position <= self._sequence:
+                        position = self._snapshot_event[0] - 1 if self._snapshot_event else oldest - 1
+                    batch = [entry for entry in self._history if entry[0] > position]
+                done = self._done
+                if not batch:
+                    if done:
+                        return
+                    delay = next_heartbeat - monotonic()
+                    if delay > 0:
+                        self._condition.wait(timeout=min(0.5, delay))
+                        continue
+            if batch:
+                for position, event in batch:
+                    yield deepcopy(event)
+            else:
+                yield {"type": "heartbeat"}
+            next_heartbeat = monotonic() + STREAM_HEARTBEAT_SECONDS
             if done:
                 return
-            if status := self.view(latest):
-                state = (status.get("job_status"), status.get("model_retry"))
-                if state != reported_state:
-                    reported_state = state
-                    yield {"type": "snapshot", "payload": status}
 
 
 class RunRegistry:
@@ -151,8 +202,11 @@ AnalysisThread = threading.Thread
 
 
 def _to_sse(event: dict[str, Any]) -> bytes:
+    if event["type"] == "heartbeat":
+        return b": keep-alive\n\n"
+    cursor = f"id: {event['id']}\n" if "id" in event else ""
     payload = json.dumps(event["payload"], ensure_ascii=False)
-    return f"event: {event['type']}\ndata: {payload}\n\n".encode("utf-8")
+    return f"{cursor}event: {event['type']}\ndata: {payload}\n\n".encode("utf-8")
 
 
 def _persist_snapshot(workflow: MarketMindGraph, run_id: str, snapshot: dict[str, Any]) -> None:
@@ -208,7 +262,7 @@ def _resolve_snapshot(workflow: MarketMindGraph, run_id: str, runs: RunRegistry,
     session = runs.get(run_id)
     job = jobs.get(run_id)
     if session is not None:
-        return session.view(session.latest_snapshot or job)
+        return session.current_snapshot(job)
     return _archived_or_interrupted(workflow, run_id, job)
 
 
@@ -530,7 +584,7 @@ def create_app(storage_root: str | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="This research run is no longer active.")
         if not session.control.cancel():
             raise HTTPException(status_code=409, detail="This research run has finished or is already stopping.")
-        snapshot = session.view(session.latest_snapshot or get_jobs().get(run_id))
+        snapshot = session.current_snapshot(get_jobs().get(run_id))
         return JSONResponse(snapshot or {"run_id": run_id, "job_status": "stopping"}, status_code=202)
 
     @app.get("/runs/{run_id}")
@@ -574,7 +628,8 @@ def create_app(storage_root: str | None = None) -> FastAPI:
 
     @app.get("/runs/{run_id}/stream")
     @app.get("/api/runs/{run_id}/stream")
-    def stream_run_events(run_id: str) -> StreamingResponse:
+    def stream_run_events(run_id: str, after: str | None = None,
+                          last_event_id: str | None = Header(default=None)) -> StreamingResponse:
         session = runs.get(run_id)
         durable = get_workflow().reviews.load(run_id)
         if session is None or durable is not None:
@@ -586,8 +641,10 @@ def create_app(storage_root: str | None = None) -> FastAPI:
                 yield _to_sse({"type": "snapshot", "payload": persisted})
                 yield _to_sse({"type": "complete", "payload": persisted})
 
-            return StreamingResponse(single_event_stream(), media_type="text/event-stream")
-        return StreamingResponse((_to_sse(event) for event in session.stream_events()), media_type="text/event-stream")
+            return StreamingResponse(single_event_stream(), media_type="text/event-stream", headers=STREAM_HEADERS)
+        cursor = last_event_id if last_event_id is not None else after
+        return StreamingResponse((_to_sse(event) for event in session.stream_events(cursor)),
+                                 media_type="text/event-stream", headers=STREAM_HEADERS)
 
     return app
 

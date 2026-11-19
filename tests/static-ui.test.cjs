@@ -203,6 +203,24 @@ test('stream transport errors show reconnecting without treating the run as fail
   assert.deepEqual(alerts, []);
 });
 
+test('static reload resumes from the newest snapshot even if an older GET finishes later', async () => {
+  const { context, $, sources, requests } = app();
+  context.renderSnapshot({run_id:'active', status:'running', stream_cursor:'session:12'});
+  context.connectRunStream('active', 'session:12');
+  assert.equal(sources[0].url, '/api/runs/active/stream?after=session%3A12');
+  const reload = context.refreshRun(true);
+  sources[0].listeners.snapshot({data:JSON.stringify({
+    run_id:'active', status:'running', stream_cursor:'session:14', latest_update:'newest update',
+  })});
+  requests[0].resolve({run_id:'active', status:'running', stream_cursor:'session:13', latest_update:'old update'});
+  await reload;
+  assert.equal($('appStatus').textContent,'newest update');
+  assert.equal(sources[0].closed,true);
+  assert.equal(sources[1].url,'/api/runs/active/stream?after=session%3A14');
+  sources[1].listeners.snapshot({data:JSON.stringify({run_id:'active', status:'completed'})});
+  assert.equal(sources[1].closed,true);
+});
+
 test('readable report formatting escapes HTML before adding headings, lists and bold', () => {
   const { context } = app();
   assert.equal(typeof context.renderReportText, 'function');
