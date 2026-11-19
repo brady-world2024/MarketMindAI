@@ -25,6 +25,7 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
   const noAnalysis = snapshot?.data_availability?.ai_analysis_performed === false
     && snapshot?.data_availability?.can_recommend === false;
   const scope = snapshot && (running || !snapshot.final_decision) ? researchScopeFacts(snapshot) : [];
+  const retries = snapshot?.model_usage?.calls_retried ?? 0;
   return <section className="panel progressPanel" aria-labelledby="progress-title">
     <div className="sectionHeader compact"><div><p className="sectionKicker">Research progress</p>
       <h2 id="progress-title">{running && !snapshot ? "Preparing your research" : phase.label}</h2></div>
@@ -39,7 +40,8 @@ export function ResearchProgress({ snapshot, running, streamState, onReconnect, 
     {snapshot?.model_usage && <div className="summaryLine" aria-label="Model usage">
       <p>Model calls {snapshot.model_usage.calls_started}{snapshot.model_usage.model_call_limit !== null
         ? ` / ${snapshot.model_usage.model_call_limit}` : " · no limit"}
-        {snapshot.model_usage.calls_failed > 0 && ` · ${snapshot.model_usage.calls_failed} failed`}</p>
+        {snapshot.model_usage.calls_failed > 0 && ` · ${snapshot.model_usage.calls_failed} failed`}
+        {retries > 0 && ` · ${retries} ${retries === 1 ? "retry" : "retries"}`}</p>
       <p>Provider-reported tokens {snapshot.model_usage.reported_total_tokens ?? "Not reported"}
         {snapshot.model_usage.reported_total_tokens !== null &&
           ` · ${snapshot.model_usage.calls_with_reported_total_tokens} of ${snapshot.model_usage.calls_started} calls reported a total`}</p>

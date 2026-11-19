@@ -403,6 +403,8 @@ def render_report_html(snapshot: dict[str, Any], autoprint: bool = False, compar
     model_usage = snapshot.get("model_usage")
     if model_usage:
         metadata += _meta_row("Model calls", f"{model_usage['calls_started']} / {model_usage['model_call_limit'] or 'No limit'}")
+        if retries := model_usage.get("calls_retried"):
+            metadata += _meta_row("Model retries", retries)
         metadata += _meta_row("Provider-reported tokens",
                               model_usage["reported_total_tokens"] if model_usage["reported_total_tokens"] is not None else "Not reported")
         metadata += _meta_row("Calls reporting total tokens", model_usage["calls_with_reported_total_tokens"])

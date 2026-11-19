@@ -102,6 +102,7 @@ export type ModelUsage = {
   calls_started: number;
   calls_completed: number;
   calls_failed: number;
+  calls_retried?: number;
   calls_with_reported_tokens: number;
   calls_with_reported_total_tokens: number;
   possibly_incomplete?: boolean;
@@ -137,6 +138,7 @@ export type RunSnapshot = {
   status: "queued" | "running" | "completed" | "error";
   model_usage?: ModelUsage | null;
   job_status?: "interrupted" | "stopping" | "cancelled" | "timed_out" | "budget_exhausted";
+  model_retry?: "rate_limit" | "connection";
   stop_reason?: "cancelled" | "timed_out" | "budget_exhausted";
   last_job_status?: "queued" | "running";
   original_input: string;
