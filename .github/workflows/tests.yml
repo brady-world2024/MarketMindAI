@@ -45,6 +45,11 @@ jobs:
           tests/test_job_recovery.py
           tests/test_job_controls.py
           tests/test_research_usage.py
+          tests/test_chatgpt_plan_auth.py
+          tests/test_chatgpt_plan_probe.py
+          tests/test_chatgpt_plan_cli.py
+          tests/test_cli_package.py
+          tests/test_cli_interactive.py
           tests/test_research_scope.py
           tests/test_revision_comparison.py
           tests/test_structured_agents.py

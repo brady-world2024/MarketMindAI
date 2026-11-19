@@ -22,6 +22,7 @@ from rich.text import Text
 from ..graph.request import AnalysisRequest
 from ..web.app import run as run_web_app
 from .announcements import display_announcements, fetch_announcements
+from .chatgpt_plan import app as chatgpt_plan_app
 from .config import CLI_DESCRIPTION, CLI_PROG, DEFAULT_ANALYSIS_DATE, DEFAULT_CLI_ANALYSTS, DEFAULT_HOST, DEFAULT_PORT
 from .models import AnalyzeOptions, ResolveOptions, RunStatistics, ServeOptions, ValidateProviderOptions
 from .stats_handler import StatsCallbackHandler
@@ -42,6 +43,7 @@ if load_dotenv is not None:  # pragma: no cover - exercised only when dependency
 
 console = Console()
 app = typer.Typer(name=CLI_PROG, help=CLI_DESCRIPTION, add_completion=True)
+app.add_typer(chatgpt_plan_app, name="chatgpt-plan")
 
 
 def _display_announcements() -> None:
