@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -20,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ..graph.request import AnalysisRequest
+from ..evaluation.reliability import evaluate_reliability
 from ..web.app import run as run_web_app
 from .announcements import display_announcements, fetch_announcements
 from .chatgpt_plan import app as chatgpt_plan_app
@@ -369,6 +372,29 @@ def validate_provider_command(
         )
     )
     raise typer.Exit(exit_code)
+
+
+@app.command("evaluate-reliability")
+def evaluate_reliability_command(
+    snapshot_files: list[Path] = typer.Argument(..., help="Saved run snapshot JSON files or JSON arrays."),
+) -> None:
+    """Summarize the reliability of saved research runs using their recorded evidence."""
+    reports = []
+    for path in snapshot_files:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            typer.echo(f"Unable to read a snapshot JSON file: {path.name}", err=True)
+            raise typer.Exit(2) from None
+        reports.extend(payload if isinstance(payload, list) else [payload])
+    try:
+        summary = evaluate_reliability(reports)
+    except ValueError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(2) from None
+    typer.echo(json.dumps(summary, ensure_ascii=False))
+    if summary["violation_count"]:
+        raise typer.Exit(1)
 
 
 @app.command("serve")

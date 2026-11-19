@@ -1,0 +1,55 @@
+{
+  "run_id": "live-ready",
+  "ticker": "ABC",
+  "analysis_date": "2026-06-12",
+  "status": "completed",
+  "data_mode": "live",
+  "started_at": "2026-06-12T21:00:00Z",
+  "finished_at": "2026-06-12T21:00:03Z",
+  "research_cutoff": {"cutoff_at": "2026-06-12T20:00:00Z"},
+  "data_snapshot": {"snapshot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "data_availability": {
+    "can_recommend": true,
+    "ai_analysis_performed": true,
+    "missing": [],
+    "requirements": {
+      "instrument": {"required": true, "available": true},
+      "price_history": {"required": true, "available": true},
+      "income_statement": {"required": true, "available": true},
+      "balance_sheet": {"required": true, "available": true},
+      "cashflow": {"required": true, "available": true},
+      "news": {"required": false, "available": false}
+    }
+  },
+  "source_records": [
+    {
+      "record_id": "filing-1",
+      "symbol": "ABC",
+      "provider": "sec",
+      "data_mode": "live",
+      "admissibility": "included",
+      "raw_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "published_at": "2026-05-01T15:00:00Z",
+      "content": "Saved material private to the input"
+    },
+    {
+      "record_id": "future-news",
+      "symbol": "ABC",
+      "data_mode": "live",
+      "admissibility": "excluded",
+      "published_at": "2026-06-12T20:00:01Z"
+    }
+  ],
+  "final_signal": "Hold",
+  "final_structured_decision": {
+    "decision_status": "Actionable",
+    "core_claims": [{"claim": "Private report claim", "evidence_ids": ["E1"]}]
+  },
+  "evidence_ledger": [{"evidence_id": "E1", "raw_source_id": "filing-1"}],
+  "report_verification": {
+    "blocks_actionable_recommendation": false,
+    "qualitative_claims": [{"status": "supported"}]
+  },
+  "report_quality": {"claim_audit": {"unsupported_claims": []}},
+  "model_usage": {"calls_started": 3, "calls_retried": 1, "reported_total_tokens": 300, "model_elapsed_ms": 1800}
+}
