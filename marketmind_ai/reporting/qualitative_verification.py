@@ -15,11 +15,12 @@ from ..dataflows.source_policy import classify_public_time
 
 _TEXT_METHODS = {"get_news", "get_global_news", "get_income_statement", "get_balance_sheet",
                  "get_cashflow", "get_price_history"}
+ClaimStatus = Literal["supported", "contradicted", "insufficient"]
 
 
 class ClaimVerdict(BaseModel):
     claim_number: int = Field(strict=True, ge=1, le=5)
-    status: Literal["supported", "contradicted", "insufficient"]
+    status: ClaimStatus
     reason: str = Field(min_length=1, max_length=500)
 
 
@@ -84,6 +85,12 @@ def _citation(evidence, sources):
 
 
 def verify_core_claims(decision, records, symbol, cutoff, judge):
+    checks, _ = inspect_core_claims(decision, records, symbol, cutoff, judge)
+    return checks
+
+
+def inspect_core_claims(decision, records, symbol, cutoff, judge=None):
+    """Return check rows and the claim numbers with usable model verdicts."""
     sources = {r["record_id"]: r for r in records if _eligible(r, symbol, cutoff)}
     evidence = {f"E{index}": item for index, item in enumerate(decision.get("primary_evidence") or [], 1)}
     checks, pending = [], []
@@ -99,30 +106,27 @@ def verify_core_claims(decision, records, symbol, cutoff, judge):
             row["reason"] = "Independent claim verification could not be completed."
             pending.append(row)
 
-    if not pending:
-        return checks
+    accepted = set()
+    if not pending or judge is None:
+        return checks, accepted
     try:
         judgments = ClaimVerdicts.model_validate({"verdicts": judge([
             {key: row[key] for key in ("claim_number", "claim", "citations")} for row in pending])}).verdicts
     except Exception:
-        return checks
+        return checks, accepted
     expected = {row["claim_number"] for row in pending}
     if len(judgments) != len(expected) or {item.claim_number for item in judgments} != expected:
-        return checks
+        return checks, accepted
     by_number = {item.claim_number: item for item in judgments}
     for row in pending:
         judgment = by_number[row["claim_number"]]
         if judgment.reason.strip():
             row.update(status=judgment.status, reason=judgment.reason)
-    return checks
+            accepted.add(judgment.claim_number)
+    return checks, accepted
 
 
-def verify_active_claims(decision, model):
-    active = _active_snapshot()
-    if active is None:
-        return []
-    snapshot, records = active
-
+def build_claim_judge(symbol, model):
     def judge(claims):
         review = model.with_structured_output(ClaimVerdicts)
         verdicts = invoke_model(review, [
@@ -135,8 +139,17 @@ def verify_active_claims(decision, model):
                 "If the evidence is ambiguous, unrelated, or incomplete, return insufficient. "
                 "Return exactly one verdict per claim number."
             )),
-            HumanMessage(content=json.dumps({"symbol": snapshot.symbol, "claims": claims}, ensure_ascii=False)),
+            HumanMessage(content=json.dumps({"symbol": symbol, "claims": claims}, ensure_ascii=False)),
         ])
         return ClaimVerdicts.model_validate(verdicts).verdicts
 
-    return verify_core_claims(decision, records, snapshot.symbol, snapshot.cutoff.get("cutoff_at"), judge)
+    return judge
+
+
+def verify_active_claims(decision, model):
+    active = _active_snapshot()
+    if active is None:
+        return []
+    snapshot, records = active
+    return verify_core_claims(decision, records, snapshot.symbol, snapshot.cutoff.get("cutoff_at"),
+                              build_claim_judge(snapshot.symbol, model))

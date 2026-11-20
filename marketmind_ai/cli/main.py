@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha256
 import json
 from pathlib import Path
 from typing import Optional
 
 import typer
+from pydantic import ValidationError
 
 try:
     from dotenv import load_dotenv
@@ -22,7 +24,11 @@ from rich.table import Table
 from rich.text import Text
 
 from ..graph.request import AnalysisRequest
+from ..evaluation.qualitative_benchmark import ClaimBenchmark, evaluate_claims, read_benchmark
 from ..evaluation.reliability import evaluate_reliability
+from ..llm_clients.bundle import build_research_model
+from ..reporting.qualitative_verification import build_claim_judge
+from ..run_control import RunControl, use_run_control
 from ..web.app import run as run_web_app
 from .announcements import display_announcements, fetch_announcements
 from .chatgpt_plan import app as chatgpt_plan_app
@@ -394,6 +400,52 @@ def evaluate_reliability_command(
         raise typer.Exit(2) from None
     typer.echo(json.dumps(summary, ensure_ascii=False))
     if summary["violation_count"]:
+        raise typer.Exit(1)
+
+
+@app.command("evaluate-claims")
+def evaluate_claims_command(
+    benchmark_file: Path | None = typer.Argument(None, help="Optional benchmark JSON. Defaults to the bundled fixture."),
+    provider: str | None = typer.Option(None, "--provider", help="Use this configured provider for model calls."),
+    model: str | None = typer.Option(None, "--model", help="Requires --provider and may use paid model calls."),
+) -> None:
+    """Check citation admission offline, or explicitly measure a model's semantic verdicts."""
+    model_requested = provider is not None or model is not None
+    provider = (provider or "").strip().lower()
+    model = (model or "").strip()
+    if model_requested and not (provider and model):
+        typer.echo("Provide both --provider and --model to measure semantic verdicts.", err=True)
+        raise typer.Exit(2)
+    try:
+        raw = read_benchmark(benchmark_file)
+    except OSError:
+        typer.echo("Unable to read the benchmark JSON file.", err=True)
+        raise typer.Exit(2) from None
+    try:
+        benchmark = ClaimBenchmark.model_validate_json(raw)
+    except ValidationError as error:
+        first = error.errors(include_input=False, include_context=False, include_url=False)[0]
+        field = ".".join(str(part) for part in first["loc"])
+        typer.echo(f"Invalid benchmark{f' at {field}' if field else ''}. {first['msg']}", err=True)
+        raise typer.Exit(2) from None
+
+    if model_requested:
+        control = RunControl()
+        request = AnalysisRequest(benchmark.symbol, benchmark.cutoff_at[:10], llm_provider=provider, quick_model=model)
+        with use_run_control(control):
+            try:
+                reviewer = build_research_model(model, request)
+            except Exception:
+                typer.echo("Unable to initialize the benchmark model. Check provider settings.", err=True)
+                raise typer.Exit(2) from None
+            summary = evaluate_claims(benchmark, judge=build_claim_judge(benchmark.symbol, reviewer))
+        summary.update(provider=provider, model=model, model_usage=control.usage_snapshot())
+    else:
+        summary = evaluate_claims(benchmark)
+
+    summary["benchmark_sha256"] = sha256(raw).hexdigest()
+    typer.echo(json.dumps(summary, ensure_ascii=False))
+    if summary["admission"]["mismatches"] or summary["semantic"]["unavailable"]:
         raise typer.Exit(1)
 
 

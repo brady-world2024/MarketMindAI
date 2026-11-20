@@ -22,12 +22,13 @@ def build_model_bundle(request: AnalysisRequest) -> ModelBundle:
     if provider == "offline":
         return ModelBundle(provider=provider, quick=None, deep=None, offline=True)
 
-    quick = _build_model(provider, request.quick_model, request)
-    deep = _build_model(provider, request.deep_model, request)
+    quick = build_research_model(request.quick_model, request)
+    deep = build_research_model(request.deep_model, request)
     return ModelBundle(provider=provider, quick=quick, deep=deep, offline=False)
 
 
-def _build_model(provider: str, model: str, request: AnalysisRequest):
+def build_research_model(model: str, request: AnalysisRequest):
+    provider = request.llm_provider.lower()
     defaults = provider_defaults(provider)
     controlled = active_run_control() is not None
     controls = {"timeout": MODEL_TIMEOUT_SECONDS} if controlled else {}
