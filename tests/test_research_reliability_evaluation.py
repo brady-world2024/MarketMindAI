@@ -142,6 +142,33 @@ def test_progress_snapshot_does_not_distort_terminal_rate_or_missing_token_measu
     assert live["model_usage"]["reported_total_tokens"] == {"total": 0, "runs_reporting": 1}
 
 
+def test_recovery_attempts_have_a_separate_completion_rate():
+    success = live_report("recover-done")
+    partial = blocked_report("recover-declined")
+    inflight = {"run_id": "recover-running", "data_mode": "live", "status": "running"}
+    stops = [
+        {"run_id": f"recover-{cause}", "data_mode": "live", "status": "error", "job_status": cause}
+        for cause in ("cancelled", "timed_out", "budget_exhausted", "interrupted", "failed")
+    ]
+    attempts = [success, partial, inflight, *stops]
+    for report in attempts:
+        report["recovery_of_run_id"] = "123456abcdef"
+    summary = evaluate_reliability([*attempts, live_report(), {
+        "run_id": "old-demo", "data_mode": "demo", "status": "completed",
+    }])
+    live = summary["by_data_mode"]["live"]
+    assert live["recovery"] == {
+        "attempts": 8,
+        "outcomes": {"completed_actionable": 1, "completed_no_recommendation": 1,
+                     "cancelled": 1, "timed_out": 1, "budget_exhausted": 1,
+                     "interrupted": 1, "failed": 1, "in_progress": 1},
+        "completion": {"completed": 2, "terminal_runs": 7, "rate": 2 / 7},
+    }
+    assert summary["runs"][0]["recovery_of_run_id"] == "123456abcdef"
+    assert summary["runs"][len(attempts)]["recovery_of_run_id"] is None
+    assert summary["by_data_mode"]["demo"]["recovery"]["completion"]["rate"] is None
+
+
 def test_cli_reads_snapshot_arrays_and_signals_bad_runs_without_modifying_files(tmp_path):
     snapshots = tmp_path / "reports.json"
     failed = blocked_report()

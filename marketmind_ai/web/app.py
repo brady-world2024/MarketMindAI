@@ -321,6 +321,7 @@ def _run_analysis_thread(session: RunSession, workflow: MarketMindGraph, request
     except Exception:
         latest = dict(final_snapshot or session.latest_snapshot or {
             "run_id": session.run_id,
+            "recovery_of_run_id": request.recovery_of_run_id,
             "status": "error",
             "original_input": request.ticker,
             "ticker": resolution.resolved_symbol or request.ticker,
@@ -472,6 +473,14 @@ def create_app(storage_root: str | None = None) -> FastAPI:
     @app.post("/api/reports", response_model=RunCreatedResponse)
     def create_run(request: AnalysisRequest) -> RunCreatedResponse:
         current_workflow = get_workflow()
+        if request.recovery_of_run_id is not None:
+            original = _resolve_snapshot(current_workflow, request.recovery_of_run_id, runs, get_jobs())
+            if original is None:
+                raise HTTPException(status_code=404, detail="The original research run was not found.")
+            original_snapshot_id = (original.get("data_snapshot") or {}).get("snapshot_id")
+            if (original.get("job_status") != "interrupted" or not request.snapshot_id
+                    or request.snapshot_id != original_snapshot_id):
+                raise HTTPException(status_code=409, detail="Recovery requires an interrupted run and its original saved data.")
         try:
             resolved = resolve_request_symbol(request, current_workflow)
         except SnapshotIntegrityError as exc:

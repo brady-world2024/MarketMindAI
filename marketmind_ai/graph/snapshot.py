@@ -110,6 +110,7 @@ class RunSnapshot:
     model_usage: Optional[dict] = None
     research_objective: Optional[str] = None
     research_horizon: Optional[str] = None
+    recovery_of_run_id: Optional[str] = None
 
     @classmethod
     def create(
@@ -139,6 +140,7 @@ class RunSnapshot:
         reports = [ReportSectionView(key=key, label=label) for key, label in report_labels.items()]
         return cls(
             run_id=run_id,
+            recovery_of_run_id=request.recovery_of_run_id,
             status="queued",
             original_input=request.ticker,
             ticker=resolved_symbol,

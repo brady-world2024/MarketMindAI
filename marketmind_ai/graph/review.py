@@ -57,6 +57,7 @@ class ReviewStore:
     def _safe_request(request) -> dict:
         payload = asdict(request) if not isinstance(request, dict) else dict(request)
         payload.pop("api_key", None)
+        payload.pop("recovery_of_run_id", None)
         return payload
 
     def save_draft(self, snapshot: dict, request, state: dict) -> dict:

@@ -37,7 +37,11 @@ export function buildReplayRequest(saved: RunSnapshot, settings: ProviderSetting
   if (saved.data_mode === "live" && (!settings.provider || settings.provider === "offline" || !settings.validationResult?.valid)) {
     throw new Error("Live saved-data replay requires a verified live AI connection. Connect a provider first.");
   }
-  return { ...savedResearchRequest(saved, settings), snapshot_id: saved.data_snapshot.snapshot_id };
+  return {
+    ...savedResearchRequest(saved, settings),
+    snapshot_id: saved.data_snapshot.snapshot_id,
+    ...(saved.job_status === "interrupted" ? { recovery_of_run_id: saved.run_id } : {}),
+  };
 }
 
 export function buildRefreshRequest(saved: RunSnapshot, settings: ProviderSettings) {

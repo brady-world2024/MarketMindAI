@@ -39,7 +39,9 @@ def build_graph_config(request: AnalysisRequest) -> dict[str, Any]:
 
 
 def to_core_request(request: AnalysisRequest) -> CoreAnalysisRequest:
-    return CoreAnalysisRequest.from_mapping(request.model_dump(mode="python"))
+    core = CoreAnalysisRequest.from_mapping(request.model_dump(mode="python"))
+    core.recovery_of_run_id = request.recovery_of_run_id
+    return core
 
 
 def resolve_request_symbol(request: AnalysisRequest, workflow: MarketMindGraph | None = None):
@@ -57,6 +59,7 @@ class SnapshotBuilder:
     def __init__(self, run_id: str, request: AnalysisRequest, resolution):
         self.snapshot = RunSnapshot(
             run_id=run_id,
+            recovery_of_run_id=request.recovery_of_run_id,
             status="queued",
             original_input=request.ticker,
             ticker=resolution.resolved_symbol or request.ticker,

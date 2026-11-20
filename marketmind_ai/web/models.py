@@ -50,6 +50,7 @@ class AnalysisRequest(BaseModel):
     checkpoint_enabled: bool = False
     human_feedback: str = ""
     snapshot_id: Optional[str] = Field(default=None, pattern=r'^[0-9a-f]{32}$')
+    recovery_of_run_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{12}$")
 
     @field_validator("ticker")
     @classmethod
@@ -205,6 +206,7 @@ class ReportSectionView(BaseModel):
 
 class RunSnapshot(BaseModel):
     run_id: str
+    recovery_of_run_id: str | None = None
     research_objective: ResearchObjective | None = None
     research_horizon: ResearchHorizon | None = None
     data_mode: Literal["live", "demo", "unknown"] = "unknown"
