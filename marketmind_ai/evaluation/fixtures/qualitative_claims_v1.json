@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "benchmark_id": "qualitative-claims-v1",
+  "symbol": "EXAMPLE",
+  "cutoff_at": "2026-06-12T20:00:00Z",
+  "source_records": [
+    {
+      "record_id": "shipments",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "In Q1, shipments rose 8% from the prior quarter."
+    },
+    {
+      "record_id": "plant",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "北部工厂在四月全月停产。"
+    },
+    {
+      "record_id": "forecast",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "Management expects orders to recover in Q3. It did not report Q3 order results."
+    },
+    {
+      "record_id": "capex",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_income_statement",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "Capital expenditures totaled $12 million in fiscal 2025."
+    },
+    {
+      "record_id": "license",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "The regulator rejected the company's license application."
+    },
+    {
+      "record_id": "logo",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "The company introduced a blue logo at its annual meeting."
+    },
+    {
+      "record_id": "margin",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "Gross margin rose in May. Management did not identify the cause."
+    },
+    {
+      "record_id": "segment",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "Enterprise-segment customer count rose 12%."
+    },
+    {
+      "record_id": "other-metric",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "Company-wide operating expenses rose 2%."
+    },
+    {
+      "record_id": "prior-period",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "The customer retention rate was 92% in fiscal 2024. Fiscal 2025 retention was not disclosed."
+    },
+    {
+      "record_id": "future",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T20:01:00Z",
+      "content": "The company opened a warehouse."
+    },
+    {
+      "record_id": "date-only",
+      "symbol": "EXAMPLE",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12",
+      "content": "The audit committee met."
+    },
+    {
+      "record_id": "other-issuer",
+      "symbol": "OTHER",
+      "provider": "synthetic-fixture",
+      "method": "get_news",
+      "data_mode": "demo",
+      "admissibility": "included",
+      "published_at": "2026-06-12T19:00:00Z",
+      "content": "The company suspended dividends."
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "shipment-paraphrase",
+      "claim": "Q1 shipments increased from the preceding quarter.",
+      "evidence": [
+        {
+          "raw_source_id": "shipments",
+          "excerpt": "In Q1, shipments rose 8% from the prior quarter."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "supported",
+      "label_rationale": "The source states the same metric, direction and comparison period."
+    },
+    {
+      "case_id": "plant-closure-zh",
+      "claim": "北部工厂四月没有生产。",
+      "evidence": [
+        {
+          "raw_source_id": "plant",
+          "excerpt": "北部工厂在四月全月停产。"
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "supported",
+      "label_rationale": "全月停产支持四月没有生产的表述。"
+    },
+    {
+      "case_id": "forecast-qualified",
+      "claim": "Management expects orders to recover in Q3.",
+      "evidence": [
+        {
+          "raw_source_id": "forecast",
+          "excerpt": "Management expects orders to recover in Q3. It did not report Q3 order results."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "supported",
+      "label_rationale": "The claim clearly attributes an expectation to management and preserves the period."
+    },
+    {
+      "case_id": "capex-amount",
+      "claim": "Fiscal 2025 capital spending was $12 million.",
+      "evidence": [
+        {
+          "raw_source_id": "capex",
+          "excerpt": "Capital expenditures totaled $12 million in fiscal 2025."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "supported",
+      "label_rationale": "The excerpt confirms both the amount and fiscal year."
+    },
+    {
+      "case_id": "shipment-opposite",
+      "claim": "Q1 shipments fell compared with the prior quarter.",
+      "evidence": [
+        {
+          "raw_source_id": "shipments",
+          "excerpt": "In Q1, shipments rose 8% from the prior quarter."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "contradicted",
+      "label_rationale": "The excerpt reports an increase for the same metric and period."
+    },
+    {
+      "case_id": "capex-unit-conflict",
+      "claim": "Fiscal 2025 capital spending was $12 billion.",
+      "evidence": [
+        {
+          "raw_source_id": "capex",
+          "excerpt": "Capital expenditures totaled $12 million in fiscal 2025."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "contradicted",
+      "label_rationale": "Millions and billions are different scales for the same reported amount."
+    },
+    {
+      "case_id": "license-polarity",
+      "claim": "The company's license application was approved.",
+      "evidence": [
+        {
+          "raw_source_id": "license",
+          "excerpt": "The regulator rejected the company's license application."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "contradicted",
+      "label_rationale": "Rejection and approval are mutually exclusive for the cited application decision."
+    },
+    {
+      "case_id": "logo-unrelated",
+      "claim": "Demand grew during the quarter.",
+      "evidence": [
+        {
+          "raw_source_id": "logo",
+          "excerpt": "The company introduced a blue logo at its annual meeting."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "insufficient",
+      "label_rationale": "Logo design supplies no information about demand."
+    },
+    {
+      "case_id": "forecast-as-fact",
+      "claim": "Orders already recovered in Q3.",
+      "evidence": [
+        {
+          "raw_source_id": "forecast",
+          "excerpt": "Management expects orders to recover in Q3. It did not report Q3 order results."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "insufficient",
+      "label_rationale": "A forecast and an explicit absence of results cannot establish that orders recovered."
+    },
+    {
+      "case_id": "unproved-causality",
+      "claim": "A restructuring caused the May increase in gross margin.",
+      "evidence": [
+        {
+          "raw_source_id": "margin",
+          "excerpt": "Gross margin rose in May. Management did not identify the cause."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "insufficient",
+      "label_rationale": "The increase is reported but its cause was not identified."
+    },
+    {
+      "case_id": "partial-and-segment-scope",
+      "claim": "Company-wide costs rose and company-wide customer count increased.",
+      "evidence": [
+        {
+          "raw_source_id": "segment",
+          "excerpt": "Enterprise-segment customer count rose 12%."
+        },
+        {
+          "raw_source_id": "other-metric",
+          "excerpt": "Company-wide operating expenses rose 2%."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "insufficient",
+      "label_rationale": "The expense clause is supported, but customer growth applies only to one segment."
+    },
+    {
+      "case_id": "wrong-fiscal-period",
+      "claim": "Fiscal 2025 customer retention was 92%.",
+      "evidence": [
+        {
+          "raw_source_id": "prior-period",
+          "excerpt": "The customer retention rate was 92% in fiscal 2024. Fiscal 2025 retention was not disclosed."
+        }
+      ],
+      "expected_model": true,
+      "expected_status": "insufficient",
+      "label_rationale": "The rate applies to 2024 and the 2025 rate is undisclosed."
+    },
+    {
+      "case_id": "after-close",
+      "claim": "The company opened a warehouse.",
+      "evidence": [
+        {
+          "raw_source_id": "future",
+          "excerpt": "The company opened a warehouse."
+        }
+      ],
+      "expected_model": false,
+      "expected_status": "insufficient",
+      "label_rationale": "Publication is one minute after the benchmark cutoff."
+    },
+    {
+      "case_id": "date-without-time",
+      "claim": "The audit committee met.",
+      "evidence": [
+        {
+          "raw_source_id": "date-only",
+          "excerpt": "The audit committee met."
+        }
+      ],
+      "expected_model": false,
+      "expected_status": "insufficient",
+      "label_rationale": "A date alone cannot establish availability before the cutoff."
+    },
+    {
+      "case_id": "different-issuer",
+      "claim": "EXAMPLE suspended dividends.",
+      "evidence": [
+        {
+          "raw_source_id": "other-issuer",
+          "excerpt": "The company suspended dividends."
+        }
+      ],
+      "expected_model": false,
+      "expected_status": "insufficient",
+      "label_rationale": "The saved record belongs to a different issuer."
+    },
+    {
+      "case_id": "fabricated-excerpt",
+      "claim": "Shipments doubled in Q1.",
+      "evidence": [
+        {
+          "raw_source_id": "shipments",
+          "excerpt": "In Q1, shipments doubled from the prior quarter."
+        }
+      ],
+      "expected_model": false,
+      "expected_status": "insufficient",
+      "label_rationale": "The purported excerpt does not appear in the saved source."
+    }
+  ]
+}

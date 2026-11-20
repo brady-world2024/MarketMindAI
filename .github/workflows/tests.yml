@@ -40,6 +40,7 @@ jobs:
           tests/test_memory_mode_isolation.py
           tests/test_financial_claim_verification.py
           tests/test_qualitative_verification.py
+          tests/test_qualitative_benchmark.py
           tests/test_report_quality_gate.py
           tests/test_reporting_snapshot_export.py
           tests/test_job_recovery.py
